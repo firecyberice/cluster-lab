@@ -1,0 +1,17 @@
+swarm:
+  image: swarm
+  command: join --advertise 192.168.8.51:2375 consul://192.168.8.51:8500/lab/
+
+consul:
+  image: progrium/consul
+  restart: always
+  volumes:
+    - ./tmp:/data
+  ports:
+    - 192.168.8.51:8400:8400
+    - 192.168.8.51:8500:8500
+    - 192.168.8.51:8300-8302:8300-8302
+    - 192.168.8.51:8301-8302:8301-8302/udp
+    - 172.17.0.1:54:53/udp
+#  net: host
+  command: -server -advertise 192.168.8.51 -join 192.168.8.50 -ui-dir /ui -data-dir /data
