@@ -1,34 +1,45 @@
-swarm:
-  image: swarm
-  command: join --advertise 192.168.8.50:2375 consul://192.168.8.50:8500/lab/
+version: '2'
 
-consul:
-  image: progrium/consul
-  restart: always
-  volumes:
-    - ./tmp:/data
-  ports:
-    - 192.168.8.50:8400:8400
-    - 192.168.8.50:8500:8500
-    - 192.168.8.50:8300-8302:8300-8302
-    - 192.168.8.50:8301-8302:8301-8302/udp
-    - 172.17.0.1:54:53/udp
-#  net: host
-  command: -server -advertise 192.168.8.50 -bootstrap-expect 2 -ui-dir /ui -data-dir /data
-#  command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind  -client 0.0.0.0 -bootstrap-expect 1
-
-swarmmanage:
-  image: swarm
-  ports:
-    - 2378:2375
-  command: manage consul://192.168.8.50:8500/lab/
-
-ui:
-  image: dockerui/dockerui
-  restart: always
-  ports: 
-    - 999:9000
-  privileged: true
-  command: -e http://192.168.8.50:2378
-#  volumes:
-#    - /var/run/docker.sock:/var/run/docker.sock
+services:
+  swarm:
+    image: swarm
+    restart: always
+    depends_on:
+      - consul
+    command: join --advertise 192.168.8.50:2375 consul://192.168.8.50:8500/lab
+  
+  consul:
+    image: progrium/consul
+    restart: always
+    volumes:
+      - ./tmp:/data
+    ports:
+      - 192.168.8.50:8400:8400
+      - 192.168.8.50:8500:8500
+      - 192.168.8.50:8300-8302:8300-8302
+      - 192.168.8.50:8301-8302:8301-8302/udp
+      - 172.17.0.1:54:53/udp
+  #  net: host
+    command: -server -dc lab -advertise 192.168.8.50 -bootstrap-expect 2 -ui-dir /ui -data-dir /data
+  #  command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind  -client 0.0.0.0 -bootstrap-expect 1
+  
+  swarmmanage:
+    image: swarm
+    restart: always
+    depends_on:
+      - swarm
+    ports:
+      - 2378:2375
+    command: manage --replication --advertise 192.168.8.50:2375 consul://192.168.8.50:8500/lab
+  
+  ui:
+    image: dockerui/dockerui
+    restart: always
+    depends_on:
+      - swarmmanage
+    ports: 
+      - 999:9000
+    privileged: true
+    command: -e http://192.168.8.50:2378
+  #  volumes:
+  #    - /var/run/docker.sock:/var/run/docker.sock
