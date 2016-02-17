@@ -28,15 +28,10 @@ build:
 #    - curl -X POST https://$PACKAGECLOUD_API_TOKEN:@packagecloud.io/api/v1/repos/$PACKAGECLOUD_USER_REPO/packages.json -F "package[distro_version_id]=24" -F "package[package_file]=@${BUILD_DIR}/package/${PACKAGE_NAME}.deb"
 
 publish:
-  s3:
-    acl: public-read
-    region: $$AWS_DEFAULT_REGION
-    bucket: $$AWS_BUCKET
-    access_key: $$AWS_ACCESS_KEY_ID
-    secret_key: $$AWS_SECRET_ACCESS_KEY
-    source: /drone/src/buildresult
-    target: arm-binaries/clusterlab/
-    recursive: true
+  github_release:
+    api_key: $$GITHUB_TOKEN
+    files:
+      - /drone/src/buildresult/*
 
 notify:
   slack:
