@@ -1,3 +1,2 @@
 etc/hypriot/cluster.conf
 etc/hypriot/clusterimages.conf
-etc/systemd/system/hypriot-cluster.service
