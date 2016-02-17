@@ -1,6 +1,6 @@
 [Unit]
 Description=hypriot-cluster-lab
-Wants=network-online.target docker.service
+Wants=network-online.target
 After=network.target network-online.target docker.service
 Before=shutdown.target reboot.target halt.target
 
