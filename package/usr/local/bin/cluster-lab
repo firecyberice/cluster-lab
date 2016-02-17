@@ -30,33 +30,28 @@ VLAN_INTERFACE=eth0.${VLAN_ID}
 ################
 vlan_add () {
     #echo "create vlan with tag VLAN_ID on eth0"
-    ip link add link eth0 name ${VLAN_INTERFACE} type vlan id ${VLAN_ID}
-    ip link set dev ${VLAN_INTERFACE} up
+    ip link add link eth0 name "${VLAN_INTERFACE}" type vlan id "${VLAN_ID}"
+    ip link set dev "${VLAN_INTERFACE}" up
 }
 
 vlan_reset () {
     #echo "deleting existing vlan interface"
-    ip link delete dev ${VLAN_INTERFACE} type vlan
+    ip link delete dev "${VLAN_INTERFACE}" type vlan
 }
 ####################
 #### IP config #####
 ####################
 ip_set () {
-    if [ -n "${1}" ]; then
-        local IP=${1}
-    else
-        local IP=${DEFAULTMASTERIP}
-    fi
-
+    local IP="$1"
     #echo "set ip address on vlan 200"
-    ip addr add ${IP}${NETMASK} dev ${VLAN_INTERFACE}
-    ip link set dev ${VLAN_INTERFACE} up
+    ip addr add "${IP}""${NETMASK}" dev "${VLAN_INTERFACE}"
+    ip link set dev "${VLAN_INTERFACE}" up
 }
 
 ip_request () {
     #echo "get ip address from DHCP"
-    ip link set dev ${VLAN_INTERFACE} up
-    dhclient -v ${VLAN_INTERFACE}
+    ip link set dev "${VLAN_INTERFACE}" up
+    dhclient -v "${VLAN_INTERFACE}"
 }
 ##########################
 ##### AVAHI zeroconf #####
@@ -67,9 +62,9 @@ avahi_config () {
     if [ ! -f "/etc/avahi/avahi-daemon.conf_bak" ]; then
       cp /etc/avahi/avahi-daemon.conf /etc/avahi/avahi-daemon.conf_bak
     fi
-    sed -i -e 's/#deny-interfaces=eth1/deny-interfaces=eth1,eth0,wlan0,docker0/' /etc/avahi/avahi-daemon.conf
-    sed -i -e "s/#allow-interfaces=eth0/allow-interfaces=eth0,${VLAN_INTERFACE}/" /etc/avahi/avahi-daemon.conf
-    sed -i -e 's/use-ipv6=yes/use-ipv6=no/' /etc/avahi/avahi-daemon.conf
+    sed -i -e 's/#deny-interfaces=eth1/deny-interfaces=eth1,eth0,wlan0,docker0/' \
+    -e "s/#allow-interfaces=eth0/allow-interfaces=eth0,${VLAN_INTERFACE}/" \
+    -e 's/use-ipv6=yes/use-ipv6=no/' /etc/avahi/avahi-daemon.conf
 }
 
 avahi_clusterservice () {
@@ -213,14 +208,14 @@ fi
 dockercompose_start () {
     #echo "start consul and swarm container"
     if [ -f "/etc/hypriot/docker-compose.yml" ];then
-        docker-compose -f /etc/hypriot/docker-compose.yml -p ${DOCKER_COMPOSE_PROJECT} up -d
+        docker-compose -f /etc/hypriot/docker-compose.yml -p "${DOCKER_COMPOSE_PROJECT}" up -d
     fi
 }
 
 dockercompose_stop () {
     #echo "stop consul and swarm container"
     if [ -f "/etc/hypriot/docker-compose.yml" ];then
-        docker-compose -f /etc/hypriot/docker-compose.yml -p ${DOCKER_COMPOSE_PROJECT} down
+        docker-compose -f /etc/hypriot/docker-compose.yml -p "${DOCKER_COMPOSE_PROJECT}" down
     fi
 }
 
@@ -235,7 +230,7 @@ dockercompose_reset () {
 ##### Checks #####
 ##################
 check_start () {
-
+true
 }
 check_stop () {
 foo=true
@@ -279,7 +274,7 @@ usage:
         $0 envs             Print config parameter.
 
     checks:
-        $0 checkvlan        Show settings of ${VLAN_INTERFACE}.
+        $0 checkvlan        Show settings of "${VLAN_INTERFACE}".
 
         $0 checkuplink      Show settings for an internet connection.
 
@@ -291,10 +286,10 @@ EOM
 ##### wrapper for interactive usage #####
 checkvlan () {
     echo "list interface parameters including vlan id"
-    ip -d link show ${VLAN_INTERFACE}
+    ip -d link show "${VLAN_INTERFACE}"
 
     echo "list ip addresses"
-    ip addr show ${VLAN_INTERFACE}
+    ip addr show "${VLAN_INTERFACE}"
 }
 checkuplink () {
     echo "list routes"
@@ -312,19 +307,19 @@ checkuplink () {
 checkstop () {
     echo "Report existing configuration backups:"
     if [ -f "/etc/avahi/avahi-daemon.conf_bak" ]; then
-        echo "Avahi-daemon backup exists >"$(echo -en "\033[31m config NOT resetted \033[0m")
+        echo -e "Avahi-daemon backup exists > \033[31m config NOT resetted \033[0m"
     fi
     if [ -f "/etc/avahi/services/cluster-master.service" ]; then
-        echo "Avahi cluster-master.service exists >"$(echo -en "\033[31m this node is master \033[0m")
+        echo -e "Avahi cluster-master.service exists > \033[31m this node is master \033[0m"
     fi
     if [ -f "/etc/dnsmasq.conf_bak" ]; then
-        echo "Dnsmasq backup exists >"$(echo -en "\033[31m config NOT resetted \033[0m")
+        echo -e "Dnsmasq backup exists > \033[31m config NOT resetted \033[0m"
     fi
     if [ -f "/etc/default/docker_bak" ]; then
-        echo "Docker config backup exists >"$(echo -en "\033[31m config NOT resetted \033[0m")
+        echo -e "Docker config backup exists > \033[31m config NOT resetted \033[0m"
     fi
     if [ -f "/etc/hypriot/docker-compose.yml" ]; then
-        echo "Docker-compose.yml exists >"$(echo -en "\033[31m config NOT resetted \033[0m")
+        echo -e "Docker-compose.yml exists > \033[31m config NOT resetted \033[0m"
     fi
     read -p "Press return to continue: "
     echo "Get systemd status of used services:"
@@ -390,7 +385,7 @@ EOM
 helper_check_ip () {
     local IP=$1
     local HOSTNAME_IPS=$(hostname -I)
-    local i = ""
+    local i=""
     for i in $HOSTNAME_IPS; do
         if [[ "$i" == *"$IP"* ]]; then
             echo "$ip"
@@ -398,9 +393,9 @@ helper_check_ip () {
     done
 }
 helper_check_ip_bool () {
-    local IP=$1
-    local check=$(helper_check_ip $IP)
-    if [[ -n $check ]]; then
+    local IP="$1"
+    local check=$(helper_check_ip "$IP")
+    if [[ -n "$check" ]]; then
         return 0
     else
         return 1
@@ -410,63 +405,161 @@ helper_check_ip_bool () {
 helper_find_ip_of_if () {
     local INTERFACE=$1
     local HOSTNAME_IPS=$(hostname -I)
-    local IPA_IP=$(ip a s $INTERFACE)
+    local IPA_IP=$(ip a s "$INTERFACE")
     local i=""
     for i in $HOSTNAME_IPS; do
         if [[ "$IPA_IP" == *"$i"* ]]; then
           echo "$i"
         fi
-done
+    done
 }
 check_linklocal () {
     local IP="169.254."
-    helper_check_ip_bool $IP
+    helper_check_ip_bool "$IP"
 }
 check_ip () {
-    local IP=$1
-    helper_check_ip_bool $IP
+    local IP="$1"
+    helper_check_ip_bool "$IP"
 }
 find_ip_of_if () {
-    local INTERFACE=$1
-    helper_find_ip_of_if $INTERFACE
-
+    local INTERFACE="$1"
+    helper_find_ip_of_if "$INTERFACE"
 }
 find_if_for_ip () {
     local IP_TO_FIND=$1
     local INTERFACES=$(ip link | grep -v "link/" | awk -F": " '{print $2}')
-    local i=""
+    local i
     for i in $INTERFACES; do
-        local check=$(helper_find_ip_of_if_helper $i)
-        if [[ $check == "$IP_TO_FIND" ]]; then
+        local check=$(helper_find_ip_of_if_helper "$i")
+        if [[ "$check" == "$IP_TO_FIND" ]]; then
             echo "$i"
         fi
     done
 }
 
+setmasterip () {
+    local counter=0
+    # try 10 times with 1 sec pause between each
+    while (counter <= 10); do
+        check_ip "${DEFAULT_VLAN_MASTER_IP}"
+        if [[ $? == 1 ]]; then
+            setip "${DEFAULT_VLAN_MASTER_IP}"
+        else
+            echo "IP configured: ""${DEFAULT_VLAN_MASTER_IP}"
+            return 0
+        fi
+        counter=$(( counter + 1 ))
+        sleep 1
+    done
+    echo "IP configuring failed"
+    return 1
+}
+
 fix_routing () {
 # update routes
-# TODO if not ping 8.8.8.8 and eth0 up and
-# default route exists then remove default route and request new settings via dhcp
-if [ -n "$(ip route | grep default | grep '192.168.200')" ]; then
-  ip route del default dev ${VLAN_INTERFACE}
-  dhclient eth0
-fi
+local IP=8.8.8.8
+    # test if default route for VLAN_INTERFACE
+    ip route | grep default | grep "${VLAN_INTERFACE}"  > /dev/null 2>&1;
+    if [[ $? == 0 ]]; then
+        # remove route if exists
+        ip route del default dev "${VLAN_INTERFACE}"
+    fi
+    # check ping google ip
+    ping -c 1 "$IP" > /dev/null 2>&1;
+    if [[ $? == 0 ]]; then
+        # return on success
+        return 0
+    fi
+
+    local counter=0
+    # try 10 times with 1 sec pause between each
+    while (counter <= 10); do
+        local status="$(ip link show dev eth0 | grep \"state UP\")"
+        if [[ -z "$status" ]]; then
+            ip link set dev eth0 up
+        else
+            counter=$(( counter + 10 ))
+        fi
+        conter=$(( conter + 1 ))
+        sleep 1
+    done
+    echo "link eth0 down"
+    return 1
+
+    # test if default route for eth0
+    ip route | grep default | grep eth0  > /dev/null 2>&1;
+    if [[ $? == 0 ]]; then
+        # return on success
+        return 0
+    fi
+
+    counter=0
+    # try 10 times with 1 sec pause between each
+    while (counter <= 10); do
+        echo "Request new IP"
+        dhclient eth0
+        if [[ $? == 0 ]]; then
+            # return on success
+            return 0
+        fi
+        counter=$(( counter + 1 ))
+        sleep 2
+    done
+    echo "Routing broken"
+    return 1
 }
 
 fix_dns () {
 # update /etc/resolv.conf
 # TODO if ping 8.8.8.8 and not google.com add nameserver
-fi
+    # check ping google ip
+    ping -c 1 8.8.8.8 > /dev/null 2>&1;
+    local ret_ping_ip=$?
+
+    # check ping google.com
+    ping -c 1 google.com > /dev/null 2>&1;
+    local ret_name_ip=$?
+
+    # ip is working but names not
+    if [[ ($ret_ping_ip == 0) && ($ret_name_ip != 0) ]]; then
+        # add google dns as first DNS
+        #echo -e "nameserver 8.8.8.8\n" | cat - /etc/resolv.conf | > /etc/resolv.conf
+        #echo -e "nameserver 8.8.8.8\n" | cat - /etc/resolv.conf | tee /etc/resolv.conf > /dev/null
+        sed -i '1i nameserver 8.8.8.8\n' /etc/resolv.conf
+
+    else
+        # return on success
+        return 0
+    fi
 }
 
 get_avahi_ip () {
     local IP=$(avahi-browse _cluster._tcp -t -r -p | grep 'os-release=hypriot' | grep '^=' | grep ';Cluster-Master' |  grep 'eth0\.' | grep IPv4 | awk -F ';' 'BEGIN { format="%s\n" }{ printf(format,$8) }')
     # TODO check if avahi ip is a linklocal ip
-    echo "$IP"
+    check_linklocal
+    if [[ $? == 1 ]]; then
+        # no LinkLocal IP
+        local vlanip=$(find_ip_of_if "${VLAN_INTERFACE}")
+        if [[ ("$vlanip" == "$IP") && ("$IP" == "${DEFAULT_VLAN_MASTER_IP}") ]]; then
+            # this node is master
+            true
+        else
+            # this node is slave
+            true
+        fi
+    else
+        # LinkLocal IP
+        true
+    fi
+
+
+#check_ip $IP
+#$?
+#    echo "$IP"
 }
 
 get_own_ip () {
-    local IP=$(ip addr s dev ${VLAN_INTERFACE} | grep -v inet6 | grep inet | awk '{print $2 }' | cut -d'/'  -f 1)
+    local IP=$(ip addr s dev "${VLAN_INTERFACE}" | grep -v inet6 | grep inet | awk '{print $2 }' | cut -d'/'  -f 1)
     # TODO check if avahi ip is a linklocal ip
 
     echo "$IP"
@@ -475,10 +568,14 @@ get_own_ip () {
 test_IP_settings () {
 check_linklocal
 local iface=wlan0
-local ipret=$(find_ip_of_if $iface)
+local ip_ret=$(find_ip_of_if "$iface")
 local ip=172.16.253.120
-local ifaceret=$(find_if_for_ip $ip)
+local iface_ret=$(find_if_for_ip "$ip")
+echo "$ip_ret"
+echo "$iface_ret"
 }
+
+
 ###################################
 #                                 #
 #     M A I N   P R O G R A M     #
@@ -569,13 +666,13 @@ start () {
 #        get_avahi_ip
 
     # set ip for checking avahi
-    setip $DEFAULT_VLAN_TEST_IP
+    setip "$DEFAULT_VLAN_TEST_IP"
     # if CLUSTERMASTERIP is empty then this machine is the leader"
     CLUSTERMASTERIP=$(get_avahi_ip)
-    ip addr flush dev $VLAN_INTERFACE
+    ip addr flush dev "$VLAN_INTERFACE"
     if [ -z "$CLUSTERMASTERIP" ]; then
         MASTERorSLAVE="master"
-        setip $DEFAULT_VLAN_MASTER_IP
+        setmasterip
         test_IP_settings
         setup_master
     else
