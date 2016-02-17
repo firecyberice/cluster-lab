@@ -302,7 +302,7 @@ fix_routing () {
 
     local counter=0
     # try 10 times with 1 sec pause between each
-    while (counter <= 10); do
+    while [ $counter -lt 10 ]; do
         local status="$(ip link show dev eth0 | grep \"state UP\")"
         if [[ -z "$status" ]]; then
             ip link set dev eth0 up
@@ -324,7 +324,7 @@ fix_routing () {
 
     counter=0
     # try 10 times with 1 sec pause between each
-    while (counter <= 10); do
+    while [ $counter -lt 10 ]; do
         echo "Request new IP"
         dhclient eth0
         if [[ $? == 0 ]]; then
@@ -364,7 +364,7 @@ fix_dns () {
 detect_master () {
     local return_code=0
     # set ip for checking avahi
-    setip "$DEFAULT_VLAN_TEST_IP"
+    ip_set "$DEFAULT_VLAN_TEST_IP"
     # if CLUSTERMASTERIP is empty then this machine is the leader"
     local avahi_ip=$(avahi-browse _cluster._tcp -t -r -p | grep 'os-release=hypriot' | grep '^=' | grep ';Cluster-Master' |  grep 'eth0\.' | grep IPv4 | awk -F ';' 'BEGIN { format="%s\n" }{ printf(format,$8) }')
 
@@ -389,8 +389,6 @@ detect_master () {
 get_own_ip () {
     local IP=$(ip addr s dev "${VLAN_INTERFACE}" | grep -v inet6 | grep inet | awk '{print $2 }' | cut -d'/'  -f 1)
     local new_func=$(find_ip_of_if "${VLAN_INTERFACE}")
-    echo debug selfIP "$IP $new_func"
-
     if [[ "$new_func" != "169.254."* ]]; then
         SELFIP="$new_func"
         echo "$new_func"
@@ -408,7 +406,6 @@ get_master_ip () {
         echo "${DEFAULT_VLAN_MASTER_IP}"
         return 0
     else
-        echo debug masterIP "$avahi_ip"
         if [[ "$avahi_ip" != "169.254."* ]]; then
             CLUSTERMASTERIP="$avahi_ip"
             echo "$avahi_ip"
@@ -589,23 +586,28 @@ EOM
 ##### start stop #####
 ######################
 stop () {
-    # stop container and remove docekr-compose.yml
+    echo reset docker settings and restart docker engine
+    systemctl stop docker.service
+    docker_reset
+    sleep 1
+    systemctl start docker.service
+
+    echo stop container and remove docekr-compose.yml
     dockercompose_stop
     dockercompose_reset
-    # reset docker settings and restart docker engine
-    docker_reset
-    systemctl restart docker.service
-    # reset dnsmasq config and stop dnsmasq
+
+    echo reset dnsmasq config and stop dnsmasq
     dhcp_reset
+
     systemctl stop dnsmasq.service
-    # reset avahi config and restart avahi-daemon
+    echo reset avahi config and restart avahi-daemon
     avahi_reset
     systemctl restart avahi-daemon.service
-    # disable cluster-master if active
+    echo disable cluster-master if active
     if [ -f "/etc/avahi/services/cluster-master.service" ]; then
         avahi_clusterservice
     fi
-    # remove vlan
+    echo remove vlan
     vlan_reset
     # TODO check stop exit strategy
     #check_stop
@@ -614,10 +616,10 @@ stop () {
 setmasterip () {
     local counter=0
     # try 10 times with 1 sec pause between each
-    while (counter <= 10); do
+    while [ $counter -lt 10 ]; do
         check_ip "${DEFAULT_VLAN_MASTER_IP}"
         if [[ $? == 1 ]]; then
-            setip "${DEFAULT_VLAN_MASTER_IP}"
+            ip_set "${DEFAULT_VLAN_MASTER_IP}"
         else
             echo "IP configured: ""${DEFAULT_VLAN_MASTER_IP}"
             return 0
@@ -631,44 +633,49 @@ setmasterip () {
 
 setup_master () {
     # TODO return values
-        # enable cluster-master if first node
-        if [ ! -f "/etc/avahi/services/cluster-master.service" ]; then
-            avahi_clusterservice
-        fi
-        # setup and restart dnsmasq
-        dhcp_config
-        systemctl restart dnsmasq.service
+    echo enable cluster-master if first node
+    if [ ! -f "/etc/avahi/services/cluster-master.service" ]; then
+        avahi_clusterservice
+    fi
+    echo setup and restart dnsmasq
+    dhcp_config
+    systemctl restart dnsmasq.service
 }
 
 start () {
-    # setup vlan
+    echo setup vlan
     vlan_add
-    # reconfigure and restart avahi-daemon
+
+    echo reconfigure and restart avahi-daemon
     avahi_config
     systemctl restart avahi-daemon.service
 
     detect_master
     if [[ $? == 0 ]]; then
         MASTERorSLAVE="master"
+        echo set masterip
         setmasterip
-        test_IP_settings
+        #        test_IP_settings
+
+        echo master services
         setup_master
     else
         MASTERorSLAVE="slave"
-        getip
-        test_IP_settings
+        echo set clientip
+        ip_request
+        #        test_IP_settings
     fi
     echo "Configure node as "${MASTERorSLAVE}
     SELFIP=$(get_own_ip)
     CLUSTERMASTERIP=$(get_own_ip)
-    test_IP_settings
+    echo "$SELFIP $CLUSTERMASTERIP"
+    #    test_IP_settings
 
-    # setup and restart docker
+    echo setup and restart docker
     docker_config
     systemctl restart docker.service
 
-
-    # create docker-compose.yml and start container
+    echo create docker-compose.yml and start container
     dockercompose_config
     dockercompose_start
     # TODO check startup exit strategy
