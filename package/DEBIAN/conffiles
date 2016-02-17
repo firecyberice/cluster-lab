@@ -1,2 +1,4 @@
 etc/hypriot/cluster.conf
+etc/hypriot/clusterimages.conf
+etc/hypriot/docker-compose.yml
 etc/systemd/system/hypriot-cluster.service
