@@ -43,20 +43,20 @@ vlan_reset () {
 ####################
 ip_set () {
     if [ -n "${1}" ]; then
-        IP=${1}
+        local IP=${1}
     else
-        IP=${DEFAULTMASTERIP}
+        local IP=${DEFAULTMASTERIP}
     fi
 
     #echo "set ip address on vlan 200"
-    ip addr add ${IP}/24 dev eth0.200
-    ip link set dev eth0.200 up
+    ip addr add ${IP}${NETMASK} dev ${VLAN_INTERFACE}
+    ip link set dev ${VLAN_INTERFACE} up
 }
 
 ip_request () {
     #echo "get ip address from DHCP"
-    ip link set dev eth0.200 up
-    dhclient -v eth0.200
+    ip link set dev ${VLAN_INTERFACE} up
+    dhclient -v ${VLAN_INTERFACE}
 }
 ##########################
 ##### AVAHI zeroconf #####
@@ -401,9 +401,9 @@ helper_check_ip_bool () {
     local IP=$1
     local check=$(helper_check_ip $IP)
     if [[ -n $check ]]; then
-        return true
+        return 0
     else
-        return false
+        return 1
     fi
 
 }
@@ -448,7 +448,7 @@ fix_routing () {
 # TODO if not ping 8.8.8.8 and eth0 up and
 # default route exists then remove default route and request new settings via dhcp
 if [ -n "$(ip route | grep default | grep '192.168.200')" ]; then
-  ip route del default dev eth0.200
+  ip route del default dev ${VLAN_INTERFACE}
   dhclient eth0
 fi
 }
@@ -456,9 +456,6 @@ fi
 fix_dns () {
 # update /etc/resolv.conf
 # TODO if ping 8.8.8.8 and not google.com add nameserver
-if [ -n "$(ip route | grep default | grep '192.168.200')" ]; then
-  ip route del default dev eth0.200
-  dhclient eth0
 fi
 }
 
@@ -586,6 +583,7 @@ start () {
         getip
         test_IP_settings
     fi
+    echo "Configure node as "${MASTERorSLAVE}
     SELFIP=$(get_own_ip)
     test_IP_settings
 
