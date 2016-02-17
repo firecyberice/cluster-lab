@@ -1,0 +1,599 @@
+#!/bin/bash
+
+. /etc/hypriot/cluster.conf
+. /etc/hypriot/clusterimages.conf
+IMAGE_SWARM=${IMAGE_SWARM:-"hypriot/rpi-swarm:1.1.0"}
+IMAGE_CONSUL=${IMAGE_CONSUL:-"hypriot/rpi-consul:0.6.0"}
+
+
+
+DOCKER_COMPOSE_PROJECT=${DOCKER_COMPOSE_PROJECT:-"hypriot"}
+BROADCAST=${BROADCAST:-192.168.200.255}
+NETMASK=${NETMASK:-"/24"}
+
+VLAN_ID=${VLAN_ID:-200}
+DEFAULT_VLAN_MASTER_IP=${DEFAULT_VLAN_MASTER_IP:-192.168.200.1}
+DEFAULT_VLAN_TEST_IP=${DEFAULT_VLAN_TEST_IP:-192.168.200.5}
+
+
+DHCP_BROADCAST=${DHCP_BROADCAST:-192.168.200.255}
+DHCP_NETMASK=${DHCP_NETMASK:-192.168.200.0}
+DHCP_RANGE_FROM=${DHCP_RANGE_FROM:-192.168.200.2}
+DHCP_RANGE_TO=${DHCP_RANGE_TO:-192.168.200.10 }
+
+# variables
+VLAN_INTERFACE=eth0.${VLAN_ID}
+
+
+################
+##### VLAN #####
+################
+vlan_add () {
+    #echo "create vlan with tag VLAN_ID on eth0"
+    ip link add link eth0 name ${VLAN_INTERFACE} type vlan id ${VLAN_ID}
+    ip link set dev ${VLAN_INTERFACE} up
+}
+
+vlan_reset () {
+    #echo "deleting existing vlan interface"
+    ip link delete dev ${VLAN_INTERFACE} type vlan
+}
+####################
+#### IP config #####
+####################
+ip_set () {
+    if [ -n "${1}" ]; then
+        IP=${1}
+    else
+        IP=${DEFAULTMASTERIP}
+    fi
+
+    #echo "set ip address on vlan 200"
+    ip addr add ${IP}/24 dev eth0.200
+    ip link set dev eth0.200 up
+}
+
+ip_request () {
+    #echo "get ip address from DHCP"
+    ip link set dev eth0.200 up
+    dhclient -v eth0.200
+}
+##########################
+##### AVAHI zeroconf #####
+##########################
+avahi_config () {
+    #echo "configure avahi only on eth0.200 \(vlan with id 200\)"
+    # if file backup exists do not override!
+    if [ ! -f "/etc/avahi/avahi-daemon.conf_bak" ]; then
+      cp /etc/avahi/avahi-daemon.conf /etc/avahi/avahi-daemon.conf_bak
+    fi
+    sed -i -e 's/#deny-interfaces=eth1/deny-interfaces=eth1,eth0,wlan0,docker0/' /etc/avahi/avahi-daemon.conf
+    sed -i -e "s/#allow-interfaces=eth0/allow-interfaces=eth0,${VLAN_INTERFACE}/" /etc/avahi/avahi-daemon.conf
+    sed -i -e 's/use-ipv6=yes/use-ipv6=no/' /etc/avahi/avahi-daemon.conf
+}
+
+avahi_clusterservice () {
+    #echo "create avahi cluster-master"
+    if [ -f "/etc/avahi/services/cluster-master.service" ]; then
+        rm -f /etc/avahi/services/cluster-master.service
+    else
+cat << EOM > /etc/avahi/services/cluster-master.service
+<?xml version="1.0" standalone='no'?><!--*-nxml-*-->
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">Cluster-Master=%h</name>
+  <service>
+    <type>_cluster._tcp</type>
+    <port>22</port>
+    <txt-record>os-release=hypriot</txt-record>
+  </service>
+</service-group>
+EOM
+    fi
+}
+
+avahi_reset () {
+    #echo "cleanup dnsmasq dhcp server"
+    if [ -f "/etc/dnsmasq.conf_bak" ]; then
+      rm -f /etc/avahi/avahi-daemon.conf
+      mv /etc/avahi/avahi-daemon.conf_bak /etc/avahi/avahi-daemon.conf
+    fi
+}
+########################
+##### DHCP dnsmasq #####
+########################
+dhcp_config () {
+    #echo "setup dnsmasq dhcp server"
+    # if file backup exists do not override!
+    if [ ! -f "/etc/dnsmasq.conf_bak" ]; then
+      cp /etc/dnsmasq.conf /etc/dnsmasq.conf_bak
+    fi
+cat << EOM > /etc/dnsmasq.conf
+
+# set domain name
+domain=hypriot.cluster
+interface=${VLAN_INTERFACE}
+
+# general DHCP stuff (see RFC 2132)
+#
+# 1:  subnet masq
+# 3:  default router
+# 6:  DNS server
+# 12: hostname
+# 15: DNS domain (unneeded with option 'domain')
+# 28: broadcast address
+# 42: time server
+#
+
+dhcp-authoritative
+dhcp-leasefile=/var/lib/misc/dnsmasq.leases
+dhcp-option=1,${DHCP_NETMASK}
+dhcp-option=28,${DHCP_BROADCAST}
+
+# dynamic DHCP range with a 1 hour lease
+#
+dhcp-range=${DHCP_RANGE_FROM},${DHCP_RANGE_TO},1h
+
+EOM
+}
+
+dhcp_reset () {
+    #echo "cleanup dnsmasq dhcp server"
+    if [ -f "/etc/dnsmasq.conf_bak" ];then
+        rm -f /etc/dnsmasq.conf
+        mv /etc/dnsmasq.conf_bak /etc/dnsmasq.conf
+    fi
+}
+##################
+##### DOCKER #####
+##################
+docker_config () {
+    ARCH=$(uname -m)
+    #echo "make backup of /etc/default docker"
+    # if file backup exists do not override!
+    if [ ! -f "/etc/default/docker_bak" ]; then
+      cp /etc/default/docker /etc/default/docker_bak
+    fi
+#echo "change config with new options for libnetwork introduced in docker 1.9"
+cat << EOM > /etc/default/docker
+DOCKER_OPTS="--storage-driver=overlay -D -H tcp://${SELFIP}:2375 --cluster-advertise ${SELFIP}:2375 --cluster-store consul://${SELFIP}:8500 --label hypriot.arch=${ARCH} --label hypriot.hierarchy=${MASTERorSLAVE}"
+EOM
+}
+
+docker_reset () {
+    #echo "reset docker config"
+    if [ -f "/etc/default/docker_bak" ]; then
+        rm -f /etc/default/docker
+        mv /etc/default/docker_bak /etc/default/docker
+    fi
+}
+##########################
+##### docker-compose #####
+##########################
+dockercompose_config () {
+    YMLFILE="/etc/hypriot/docker-compose.yml"
+    #echo "create docker compose for consul"
+cat << EOM > $YMLFILE
+version: "2"
+services:
+  swarm:
+    image: ${IMAGE_SWARM}
+    command: join --advertise ${SELFIP}:2375 consul://${SELFIP}:8500
+
+  consul:
+    image: ${IMAGE_CONSUL}
+    restart: always
+    ports:
+      - ${SELFIP}:8400:8400
+      - ${SELFIP}:8500:8500
+      - ${SELFIP}:8600:8600
+      - ${SELFIP}:8301:8301
+      - ${SELFIP}:8302:8302
+    net: host
+EOM
+
+if [ "$MASTERorSLAVE" == "master" ]; then
+cat << EOM >> $YMLFILE
+    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -bootstrap-expect 1
+
+  swarmmanage:
+    image: ${IMAGE_SWARM}
+    ports:
+      - 2378:2375
+    command: manage consul://${SELFIP}:8500
+EOM
+
+elif [ "$MASTERorSLAVE" == "slave" ]; then
+cat << EOM >> $YMLFILE
+    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -join ${CLUSTERMASTERIP}:8301
+EOM
+fi
+}
+
+dockercompose_start () {
+    #echo "start consul and swarm container"
+    if [ -f "/etc/hypriot/docker-compose.yml" ];then
+        docker-compose -f /etc/hypriot/docker-compose.yml -p ${DOCKER_COMPOSE_PROJECT} up -d
+    fi
+}
+
+dockercompose_stop () {
+    #echo "stop consul and swarm container"
+    if [ -f "/etc/hypriot/docker-compose.yml" ];then
+        docker-compose -f /etc/hypriot/docker-compose.yml -p ${DOCKER_COMPOSE_PROJECT} down
+    fi
+}
+
+dockercompose_reset () {
+    #echo "cleanup docker container"
+    if [ -f "/etc/hypriot/docker-compose.yml" ];then
+        rm -f /etc/hypriot/docker-compose.yml
+    fi
+}
+
+##################
+##### Checks #####
+##################
+check_start () {
+
+}
+check_stop () {
+foo=true
+    if [ -f "/etc/avahi/avahi-daemon.conf_bak" ]; then
+        foo=$foo && false
+    fi
+    if [ -f "/etc/avahi/services/cluster-master.service" ]; then
+        foo=$foo && false
+    fi
+    if [ -f "/etc/dnsmasq.conf_bak" ]; then
+        foo=$foo && false
+    fi
+    if [ -f "/etc/default/docker_bak" ]; then
+        foo=$foo && false
+    fi
+    if [ -f "/etc/hypriot/docker-compose.yml" ]; then
+        foo=$foo && false
+    fi
+echo $foo
+}
+##########################
+##### Helper & Tools #####
+##########################
+usage () {
+cat << EOM
+usage:
+        $0 start            Start the cluster lab.
+
+        $0 stop             Stop the cluster lab.
+
+    docker-compose
+        $0 downup           Destroys container and creates them again (no config changes)
+
+        $0 up               Starts container.
+
+        $0 down             Destroys container (no config changes)
+
+    setup:
+        $0 setup            Opens config file in editor.
+
+        $0 envs             Print config parameter.
+
+    checks:
+        $0 checkvlan        Show settings of ${VLAN_INTERFACE}.
+
+        $0 checkuplink      Show settings for an internet connection.
+
+        $0 checkstop        Test reset of node to pre cluster-lab state.
+
+EOM
+}
+
+##### wrapper for interactive usage #####
+checkvlan () {
+    echo "list interface parameters including vlan id"
+    ip -d link show ${VLAN_INTERFACE}
+
+    echo "list ip addresses"
+    ip addr show ${VLAN_INTERFACE}
+}
+checkuplink () {
+    echo "list routes"
+    ip route show
+
+    echo "view DNS server"
+    cat /etc/resolv.conf
+
+    echo "test ping ip"
+    ping -c 4 8.8.8.8
+
+    echo "test ping dns"
+    ping -c 4 google.com
+}
+checkstop () {
+    echo "Report existing configuration backups:"
+    if [ -f "/etc/avahi/avahi-daemon.conf_bak" ]; then
+        echo "Avahi-daemon backup exists >"$(echo -en "\033[31m config NOT resetted \033[0m")
+    fi
+    if [ -f "/etc/avahi/services/cluster-master.service" ]; then
+        echo "Avahi cluster-master.service exists >"$(echo -en "\033[31m this node is master \033[0m")
+    fi
+    if [ -f "/etc/dnsmasq.conf_bak" ]; then
+        echo "Dnsmasq backup exists >"$(echo -en "\033[31m config NOT resetted \033[0m")
+    fi
+    if [ -f "/etc/default/docker_bak" ]; then
+        echo "Docker config backup exists >"$(echo -en "\033[31m config NOT resetted \033[0m")
+    fi
+    if [ -f "/etc/hypriot/docker-compose.yml" ]; then
+        echo "Docker-compose.yml exists >"$(echo -en "\033[31m config NOT resetted \033[0m")
+    fi
+    read -p "Press return to continue: "
+    echo "Get systemd status of used services:"
+    systemctl status avahi-daemon.service
+    systemctl status dnsmasq.service
+    systemctl status docker.service
+    systemctl status hypriot-cluster.service
+}
+downup () {
+    echo "Stopping management containers"
+    dockercompose_stop
+    echo "wait 2 more seconds"
+    sleep 2
+    echo "Starting management containers"
+    dockercompose_start
+}
+up () {
+    echo "Starting management containers"
+    dockercompose_start
+}
+down () {
+    echo "Stopping management containers"
+    dockercompose_stop
+}
+setup () {
+    editor /etc/hypriot/cluster.conf
+}
+envs () {
+cat << EOM
+
+Current configuration:
+
+DOCKER_COMPOSE_PROJECT  ${DOCKER_COMPOSE_PROJECT}
+BROADCAST               ${BROADCAST}
+NETMASK                 ${NETMASK}
+
+VLAN_ID                 ${VLAN_ID:-200}
+VLAN_INTERFACE          eth0.${VLAN_ID}
+DEFAULT_VLAN_MASTER_IP  ${DEFAULT_VLAN_MASTER_IP}
+DEFAULT_VLAN_TEST_IP    ${DEFAULT_VLAN_TEST_IP}
+
+# DHCP
+DHCP_BROADCAST          ${DHCP_BROADCAST}
+DHCP_NETMASK            ${DHCP_NETMASK}
+DHCP_RANGE_FROM         ${DHCP_RANGE_FROM}
+DHCP_RANGE_TO           ${DHCP_RANGE_TO}
+
+EOM
+cat << EOM
+
+Used docker images:
+
+IMAGE_SWARM         ${IMAGE_SWARM}
+IMAGE_CONSUL        ${IMAGE_CONSUL}
+
+EOM
+}
+
+########################
+#### TODO / to fix #####
+########################
+
+helper_check_ip () {
+    local IP=$1
+    local HOSTNAME_IPS=$(hostname -I)
+    local i = ""
+    for i in $HOSTNAME_IPS; do
+        if [[ "$i" == *"$IP"* ]]; then
+            echo "$ip"
+        fi
+    done
+}
+helper_check_ip_bool () {
+    local IP=$1
+    local check=$(helper_check_ip $IP)
+    if [[ -n $check ]]; then
+        return true
+    else
+        return false
+    fi
+
+}
+helper_find_ip_of_if () {
+    local INTERFACE=$1
+    local HOSTNAME_IPS=$(hostname -I)
+    local IPA_IP=$(ip a s $INTERFACE)
+    local i=""
+    for i in $HOSTNAME_IPS; do
+        if [[ "$IPA_IP" == *"$i"* ]]; then
+          echo "$i"
+        fi
+done
+}
+check_linklocal () {
+    local IP="169.254."
+    helper_check_ip_bool $IP
+}
+check_ip () {
+    local IP=$1
+    helper_check_ip_bool $IP
+}
+find_ip_of_if () {
+    local INTERFACE=$1
+    helper_find_ip_of_if $INTERFACE
+
+}
+find_if_for_ip () {
+    local IP_TO_FIND=$1
+    local INTERFACES=$(ip link | grep -v "link/" | awk -F": " '{print $2}')
+    local i=""
+    for i in $INTERFACES; do
+        local check=$(helper_find_ip_of_if_helper $i)
+        if [[ $check == "$IP_TO_FIND" ]]; then
+            echo "$i"
+        fi
+    done
+}
+
+fix_routing () {
+# update routes
+# TODO if not ping 8.8.8.8 and eth0 up and
+# default route exists then remove default route and request new settings via dhcp
+if [ -n "$(ip route | grep default | grep '192.168.200')" ]; then
+  ip route del default dev eth0.200
+  dhclient eth0
+fi
+}
+
+fix_dns () {
+# update /etc/resolv.conf
+# TODO if ping 8.8.8.8 and not google.com add nameserver
+if [ -n "$(ip route | grep default | grep '192.168.200')" ]; then
+  ip route del default dev eth0.200
+  dhclient eth0
+fi
+}
+
+get_avahi_ip () {
+    local IP=$(avahi-browse _cluster._tcp -t -r -p | grep 'os-release=hypriot' | grep '^=' | grep ';Cluster-Master' |  grep 'eth0\.' | grep IPv4 | awk -F ';' 'BEGIN { format="%s\n" }{ printf(format,$8) }')
+    # TODO check if avahi ip is a linklocal ip
+    echo "$IP"
+}
+
+get_own_ip () {
+    local IP=$(ip addr s dev ${VLAN_INTERFACE} | grep -v inet6 | grep inet | awk '{print $2 }' | cut -d'/'  -f 1)
+    # TODO check if avahi ip is a linklocal ip
+
+    echo "$IP"
+}
+
+test_IP_settings () {
+check_linklocal
+local iface=wlan0
+local ipret=$(find_ip_of_if $iface)
+local ip=172.16.253.120
+local ifaceret=$(find_if_for_ip $ip)
+}
+###################################
+#                                 #
+#     M A I N   P R O G R A M     #
+#                                 #
+###################################
+
+setup_master () {
+        # enable cluster-master if first node
+        if [ ! -f "/etc/avahi/services/cluster-master.service" ]; then
+            avahi_clusterservice
+        fi
+        # setup and restart dnsmasq
+        dhcp_config
+        systemctl restart dnsmasq.service
+}
+
+# Run this script as sudo!
+if [ $# -eq 1 ]; then
+    case "$1" in
+        "start" )
+            start
+            ;;
+        "stop" )
+            stop
+            ;;
+        "checkstop" )
+            checkstop
+            ;;
+        "downup" )
+            downup
+            ;;
+        "down" )
+            down
+            ;;
+        "up" )
+            up
+            ;;
+        "checkvlan" )
+            checkvlan
+             ;;
+        "checkuplink" )
+            checkuplink
+            ;;
+        "setup" )
+            setup
+            ;;
+        "envs" )
+            envs
+            ;;
+        * )
+            usage
+            ;;
+    esac
+else
+    usage
+fi
+
+stop () {
+    # stop container and remove docekr-compose.yml
+    dockercompose_stop
+    dockercompose_reset
+    # reset docker settings and restart docker engine
+    docker_reset
+    systemctl restart docker.service
+    # reset dnsmasq config and stop dnsmasq
+    dhcp_reset
+    systemctl stop dnsmasq.service
+    # reset avahi config and restart avahi-daemon
+    avahi_reset
+    systemctl restart avahi-daemon.service
+    # disable cluster-master if active
+    if [ -f "/etc/avahi/services/cluster-master.service" ]; then
+        avahi_clusterservice
+    fi
+    # remove vlan
+    vlan_reset
+}
+start () {
+    # setup vlan
+    vlan_add
+    # reconfigure and restart avahi-daemon
+    avahi_config
+    systemctl restart avahi-daemon.service
+
+#TODO check master set ips ...
+#        test_IP_settings
+#        get_own_ip
+#        get_avahi_ip
+
+    # set ip for checking avahi
+    setip $DEFAULT_VLAN_TEST_IP
+    # if CLUSTERMASTERIP is empty then this machine is the leader"
+    CLUSTERMASTERIP=$(get_avahi_ip)
+    ip addr flush dev $VLAN_INTERFACE
+    if [ -z "$CLUSTERMASTERIP" ]; then
+        MASTERorSLAVE="master"
+        setip $DEFAULT_VLAN_MASTER_IP
+        test_IP_settings
+        setup_master
+    else
+        MASTERorSLAVE="slave"
+        getip
+        test_IP_settings
+    fi
+    SELFIP=$(get_own_ip)
+    test_IP_settings
+
+    # setup and restart docker
+    docker_config
+    systemctl restart docker.service
+
+    # create docker-compose.yml and start container
+    dockercompose_config
+    dockercompose_start
+}

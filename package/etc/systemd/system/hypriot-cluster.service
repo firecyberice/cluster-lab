@@ -7,8 +7,8 @@ Before=shutdown.target reboot.target halt.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/local/bin/cluster-start.sh
-ExecStop=/usr/local/bin/cluster-stop.sh
+ExecStart=/usr/local/bin/cluster-lab start
+ExecStop=/usr/local/bin/cluster-lab stop
 
 [Install]
 WantedBy=multi-user.target
