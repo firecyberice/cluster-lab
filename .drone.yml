@@ -1,3 +1,5 @@
+debug: true
+
 build:
   image: resin/rpi-raspbian:jessie
   environment:
