@@ -1,11 +1,13 @@
 #!/bin/bash
 
-. /etc/hypriot/cluster.conf
+# get docker image names
 . /etc/hypriot/clusterimages.conf
+
 IMAGE_SWARM=${IMAGE_SWARM:-"hypriot/rpi-swarm:1.1.0"}
 IMAGE_CONSUL=${IMAGE_CONSUL:-"hypriot/rpi-consul:0.6.0"}
 
-
+# get network config
+. /etc/hypriot/cluster.conf
 
 DOCKER_COMPOSE_PROJECT=${DOCKER_COMPOSE_PROJECT:-"hypriot"}
 BROADCAST=${BROADCAST:-192.168.200.255}
@@ -158,6 +160,7 @@ EOM
 docker_reset () {
     #echo "reset docker config"
     if [ -f "/etc/default/docker_bak" ]; then
+        echo default/docker_bak exists replacing default/docker
         rm -f /etc/default/docker
         mv /etc/default/docker_bak /etc/default/docker
     fi
@@ -167,7 +170,6 @@ docker_reset () {
 ##########################
 dockercompose_config () {
 YMLFILE="/etc/hypriot/docker-compose.yml"
-echo "create docker compose for consul"
 cat << EOM > $YMLFILE
 version: "2"
 services:
@@ -215,7 +217,7 @@ dockercompose_start () {
 dockercompose_stop () {
     #echo "stop consul and swarm container"
     if [ -f "/etc/hypriot/docker-compose.yml" ];then
-        docker-compose -f /etc/hypriot/docker-compose.yml -p "${DOCKER_COMPOSE_PROJECT}" down
+        docker-compose -f /etc/hypriot/docker-compose.yml -p "${DOCKER_COMPOSE_PROJECT}" down --volumes
     fi
 }
 
@@ -262,10 +264,6 @@ helper_find_ip_of_if () {
 }
 check_linklocal () {
     local IP="169.254."
-    helper_check_ip_bool "$IP"
-}
-check_ip () {
-    local IP="$1"
     helper_check_ip_bool "$IP"
 }
 find_ip_of_if () {
@@ -586,28 +584,40 @@ EOM
 ##### start stop #####
 ######################
 stop () {
-    echo reset docker settings and restart docker engine
-    systemctl stop docker.service
-    docker_reset
-    sleep 1
-    systemctl start docker.service
-
-    echo stop container and remove docekr-compose.yml
+    echo "STEP 1/6 docker container"
+    echo "            stop container"
     dockercompose_stop
+    echo "            remove docker-compose.yml"
     dockercompose_reset
 
-    echo reset dnsmasq config and stop dnsmasq
-    dhcp_reset
+    echo "STEP 2/6 docker engine"
+    echo "            stop docker engine"
+#    systemctl stop docker.service
+    echo "            reset config of docker"
+    docker_reset
+    echo "            start docker engine"
+    systemctl restart docker.service
 
+    echo "STEP 3/6 dnsmasq"
+    echo "            reset dnsmasq config"
+    dhcp_reset
+    echo "            stop dnsmasq"
     systemctl stop dnsmasq.service
-    echo reset avahi config and restart avahi-daemon
+
+    echo "STEP 4/6 avahi-daemon"
+    echo "            reset avahi config"
     avahi_reset
+    echo "            restart avahi-daemon"
     systemctl restart avahi-daemon.service
-    echo disable cluster-master if active
+
+    echo "STEP 5/6 avahi-daemon"
+    echo "            disable cluster-master if active"
     if [ -f "/etc/avahi/services/cluster-master.service" ]; then
         avahi_clusterservice
     fi
-    echo remove vlan
+
+    echo "STEP 6/6 vlan"
+    echo "            remove vlan ${VLAN_INTERFACE}"
     vlan_reset
     # TODO check stop exit strategy
     #check_stop
@@ -616,8 +626,8 @@ stop () {
 setmasterip () {
     local counter=0
     # try 10 times with 1 sec pause between each
-    while [ $counter -lt 10 ]; do
-        check_ip "${DEFAULT_VLAN_MASTER_IP}"
+    while [ $counter -lt 2 ]; do
+        helper_check_ip_bool "${DEFAULT_VLAN_MASTER_IP}"
         if [[ $? == 1 ]]; then
             ip_set "${DEFAULT_VLAN_MASTER_IP}"
         else
@@ -633,56 +643,72 @@ setmasterip () {
 
 setup_master () {
     # TODO return values
-    echo enable cluster-master if first node
+    echo "    STEP 3.2.1/6"
+    echo "                  create cluster-master.service for avahi"
     if [ ! -f "/etc/avahi/services/cluster-master.service" ]; then
         avahi_clusterservice
     fi
-    echo setup and restart dnsmasq
+
+    echo "    STEP 3.2.2/6 dnsmasq"
+    echo "                  configure dnsmasq"
     dhcp_config
+    echo "                  restart dnsmasq"
     systemctl restart dnsmasq.service
 }
 
 start () {
-    echo setup vlan
+    echo "STEP 1/6 vlan"
+    echo "            create vlan ${VLAN_ID}"
     vlan_add
 
-    echo reconfigure and restart avahi-daemon
+    echo "STEP 2/6 avahi"
+    echo "            configure avahi-daemon"
     avahi_config
+    echo "            restart avahi-daemon"
     systemctl restart avahi-daemon.service
 
+    echo "STEP 3/6 master or slave"
     detect_master
     if [[ $? == 0 ]]; then
         MASTERorSLAVE="master"
-        echo set masterip
+        echo "    STEP 3.1/6 set IP (master)"
+        echo "              set masterip"
         setmasterip
         #        test_IP_settings
 
-        echo master services
+        echo "    STEP 3.2/6 configure master"
+        echo "              master services"
         setup_master
     else
         MASTERorSLAVE="slave"
-        echo set clientip
+        echo "    STEP 3.1/6 request IP (slave)"
+        echo "              set clientip"
         ip_request
         #        test_IP_settings
     fi
-    echo "Configure node as "${MASTERorSLAVE}
+    echo "            Configured node as ${MASTERorSLAVE}"
+
+    echo "STEP 4/6 get configured IPs"
     SELFIP=$(get_own_ip)
     CLUSTERMASTERIP=$(get_own_ip)
-    echo "$SELFIP $CLUSTERMASTERIP"
+    echo "            selfIP: $SELFIP clustermasterIP: $CLUSTERMASTERIP"
     #    test_IP_settings
 
-    echo setup and restart docker
+    echo "STEP 5/6 docker"
+    echo "            configure docker"
     docker_config
+    echo "            restart docker"
     systemctl restart docker.service
 
-    echo create docker-compose.yml and start container
+    echo "STEP 6/6 docker container (docker-compose)"
+    echo "            create docker-compose.yml"
     dockercompose_config
+    echo "            start container"
     dockercompose_start
     # TODO check startup exit strategy
     #check_start
 
 }
-
 
 
 ###################################
