@@ -116,6 +116,9 @@ cat << EOM > /etc/dnsmasq.conf
 domain=hypriot.cluster
 interface=${VLAN_INTERFACE}
 
+# TODO dns stuff forward consul to ...
+#server=/consul/${SELFIP}:8600
+
 # general DHCP stuff (see RFC 2132)
 #
 # 1:  subnet masq
@@ -131,6 +134,8 @@ dhcp-authoritative
 dhcp-leasefile=/var/lib/misc/dnsmasq.leases
 dhcp-option=1,${DHCP_NETMASK}
 dhcp-option=28,${DHCP_BROADCAST}
+# TODO deliver dns server
+#dhcp-option=6,${SELFIP}
 
 # dynamic DHCP range with a 1 hour lease
 #
@@ -158,7 +163,7 @@ docker_config () {
     fi
 #echo "change config with new options for libnetwork introduced in docker 1.9"
 cat << EOM > /etc/default/docker
-DOCKER_OPTS="--storage-driver=overlay -D -H tcp://${SELFIP}:2375 --cluster-advertise ${SELFIP}:2375 --cluster-store consul://${SELFIP}:8500 --label hypriot.arch=${ARCH} --label hypriot.hierarchy=${MASTERorSLAVE}"
+DOCKER_OPTS="--storage-driver=overlay -D -H tcp://${SELFIP}:2375 --cluster-advertise ${SELFIP}:2375 --cluster-store consul://${SELFIP}:8500 --label hypriot.arch=${ARCH} --label hypriot.hierarchy=${MASTERorSLAVE} ${ADDITIONAL_DOCKER_OPTS}"
 EOM
 }
 
@@ -179,6 +184,8 @@ version: "2"
 services:
   swarm:
     image: ${IMAGE_SWARM}
+    depends_on:
+      - consul
     command: join --advertise ${SELFIP}:2375 consul://${SELFIP}:8500
 
   consul:
@@ -201,6 +208,8 @@ cat << EOM >> $YMLFILE
     image: ${IMAGE_SWARM}
     ports:
       - 2378:2375
+    depends_on:
+      - consul
     command: manage consul://${SELFIP}:8500
 EOM
 
