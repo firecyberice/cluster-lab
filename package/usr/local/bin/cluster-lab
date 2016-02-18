@@ -53,7 +53,15 @@ ip_set () {
 ip_request () {
     #echo "get ip address from DHCP"
     ip link set dev "${VLAN_INTERFACE}" up
-    dhclient "${VLAN_INTERFACE}"
+    # use the systemd way for dhclient
+cat << EOM > /etc/systemd/network/"${VLAN_INTERFACE}".network
+[Match]
+Name=${VLAN_INTERFACE}
+
+[Network]
+DHCP=yes
+EOM
+    systemctl restart systemd-networkd.service
     if [[ $? == 0 ]]; then
         echo "IP on ${VLAN_INTERFACE} is: $(find_ip_of_if "${VLAN_INTERFACE}")"
     else
@@ -194,7 +202,7 @@ services:
       - 2378:2375
     depends_on:
       - consul
-    command: manage --replication consul://${SELFIP}:8500
+    command: manage --replication --advertise ${SELFIP}:2378 consul://${SELFIP}:8500
 
   consul:
     image: ${IMAGE_CONSUL}
