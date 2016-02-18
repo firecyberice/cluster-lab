@@ -53,7 +53,12 @@ ip_set () {
 ip_request () {
     #echo "get ip address from DHCP"
     ip link set dev "${VLAN_INTERFACE}" up
-    dhclient -v "${VLAN_INTERFACE}"
+    dhclient "${VLAN_INTERFACE}"
+    if [[ $? == 0 ]]; then
+        echo "IP on ${VLAN_INTERFACE} is: $(find_ip_of_if "${VLAN_INTERFACE}")"
+    else
+        echo "dhclient failed"
+    fi
 }
 ##########################
 ##### AVAHI zeroconf #####
@@ -160,7 +165,6 @@ EOM
 docker_reset () {
     #echo "reset docker config"
     if [ -f "/etc/default/docker_bak" ]; then
-        echo default/docker_bak exists replacing default/docker
         rm -f /etc/default/docker
         mv /etc/default/docker_bak /etc/default/docker
     fi
@@ -591,22 +595,14 @@ stop () {
     dockercompose_reset
 
     echo "STEP 2/6 docker engine"
-    echo "            stop docker engine"
-    systemctl kill docker.service
     echo "            reset config of docker"
     docker_reset
-#    echo "            wait for docker"
-#    sleep 2
-#    echo "            start docker engine"
-#    systemctl start docker.service
-#    sleep 2
-#    systemctl restart docker.service
+    echo "            restart docker engine"
+    systemctl restart docker.service
 
-    echo "STEP 3/6 dnsmasq"
-    echo "            reset dnsmasq config"
-    dhcp_reset
-    echo "            stop dnsmasq"
-    systemctl stop dnsmasq.service
+    echo "STEP 3/6 vlan"
+    echo "            remove vlan ${VLAN_INTERFACE}"
+    vlan_reset
 
     echo "STEP 4/6 avahi-daemon"
     echo "            reset avahi config"
@@ -620,12 +616,12 @@ stop () {
         avahi_clusterservice
     fi
 
-    echo "STEP 6/6 vlan"
-    echo "            remove vlan ${VLAN_INTERFACE}"
-    vlan_reset
+    echo "STEP 6/6 dnsmasq"
+    echo "            reset dnsmasq config"
+    dhcp_reset
+    echo "            stop dnsmasq"
+    systemctl stop dnsmasq.service
 
-    echo "start docker"
-    systemctl start docker.service
     # TODO check stop exit strategy
     #check_stop
 }
@@ -679,17 +675,14 @@ start () {
     if [[ $? == 0 ]]; then
         MASTERorSLAVE="master"
         echo "    STEP 3.1/6 set IP (master)"
-        echo "              set masterip"
         setmasterip
         #        test_IP_settings
 
         echo "    STEP 3.2/6 configure master"
-        echo "              master services"
         setup_master
     else
         MASTERorSLAVE="slave"
         echo "    STEP 3.1/6 request IP (slave)"
-        echo "              set clientip"
         ip_request
         #        test_IP_settings
     fi
@@ -697,7 +690,7 @@ start () {
 
     echo "STEP 4/6 get configured IPs"
     SELFIP=$(get_own_ip)
-    CLUSTERMASTERIP=$(get_own_ip)
+    CLUSTERMASTERIP=$(get_master_ip)
     echo "            selfIP: $SELFIP clustermasterIP: $CLUSTERMASTERIP"
     #    test_IP_settings
 
