@@ -37,14 +37,3 @@ publish:
     api_key: $$GITHUB_TOKEN
     files:
       - /drone/src/buildresult/*
-
-notify:
-  slack:
-    webhook_url: $$SLACK_WEBHOOK_URL
-    channel: buildstatus
-    username: Drone
-    when:
-      started: false
-      success: true
-      failure: true
-
