@@ -62,7 +62,7 @@ avahi_config () {
     if [ ! -f "/etc/avahi/avahi-daemon.conf_bak" ]; then
       cp /etc/avahi/avahi-daemon.conf /etc/avahi/avahi-daemon.conf_bak
     fi
-    sed -i -e 's/#deny-interfaces=eth1/deny-interfaces=eth1,eth0,wlan0,docker0/' \
+    sed -i -e 's/#deny-interfaces=eth1/deny-interfaces=eth1,wlan0,docker0/' \
     -e "s/#allow-interfaces=eth0/allow-interfaces=eth0,${VLAN_INTERFACE}/" \
     -e 's/use-ipv6=yes/use-ipv6=no/' /etc/avahi/avahi-daemon.conf
 }
