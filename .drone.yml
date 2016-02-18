@@ -24,6 +24,8 @@ build:
     - sed -i'' "s/<SIZE>/60/g" ${BUILD_DIR}/package/${PACKAGE_NAME}/DEBIAN/control
     - sed -i'' "s/<DESCRIPTION>/${DESCRIPTION}/g" ${BUILD_DIR}/package/${PACKAGE_NAME}/DEBIAN/control
     - sed -i'' "s/<DEPENDS>/${DEPENDENCIES}/g" ${BUILD_DIR}/package/${PACKAGE_NAME}/DEBIAN/control
+    - apt-get install -y shellcheck
+    - shellcheck ${BUILD_DIR}/package/${PACKAGE_NAME}/usr/local/bin/cluster-lab
     - cd ${BUILD_DIR}/package && dpkg-deb --build ${PACKAGE_NAME}
     - rm -R ${BUILD_DIR}/package/${PACKAGE_NAME}
 #    - echo "upload debian package to package cloud"
