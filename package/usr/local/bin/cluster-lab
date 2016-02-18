@@ -188,6 +188,14 @@ services:
       - consul
     command: join --advertise ${SELFIP}:2375 consul://${SELFIP}:8500
 
+  swarmmanage:
+    image: ${IMAGE_SWARM}
+    ports:
+      - 2378:2375
+    depends_on:
+      - consul
+    command: manage --replication consul://${SELFIP}:8500
+
   consul:
     image: ${IMAGE_CONSUL}
     restart: always
@@ -204,18 +212,12 @@ if [ "$MASTERorSLAVE" == "master" ]; then
 cat << EOM >> $YMLFILE
     command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -bootstrap-expect 1
 
-  swarmmanage:
-    image: ${IMAGE_SWARM}
-    ports:
-      - 2378:2375
-    depends_on:
-      - consul
-    command: manage consul://${SELFIP}:8500
 EOM
 
 elif [ "$MASTERorSLAVE" == "slave" ]; then
 cat << EOM >> $YMLFILE
     command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -join ${CLUSTERMASTERIP}:8301
+
 EOM
 fi
 }
