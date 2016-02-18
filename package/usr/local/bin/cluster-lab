@@ -91,7 +91,7 @@ EOM
 
 avahi_reset () {
     #echo "cleanup dnsmasq dhcp server"
-    if [ -f "/etc/dnsmasq.conf_bak" ]; then
+    if [ -f "/etc/avahi/avahi-daemon.conf_bak" ]; then
       rm -f /etc/avahi/avahi-daemon.conf
       mv /etc/avahi/avahi-daemon.conf_bak /etc/avahi/avahi-daemon.conf
     fi
@@ -592,11 +592,15 @@ stop () {
 
     echo "STEP 2/6 docker engine"
     echo "            stop docker engine"
-#    systemctl stop docker.service
+    systemctl kill docker.service
     echo "            reset config of docker"
     docker_reset
-    echo "            start docker engine"
-    systemctl restart docker.service
+#    echo "            wait for docker"
+#    sleep 2
+#    echo "            start docker engine"
+#    systemctl start docker.service
+#    sleep 2
+#    systemctl restart docker.service
 
     echo "STEP 3/6 dnsmasq"
     echo "            reset dnsmasq config"
@@ -619,6 +623,9 @@ stop () {
     echo "STEP 6/6 vlan"
     echo "            remove vlan ${VLAN_INTERFACE}"
     vlan_reset
+
+    echo "start docker"
+    systemctl start docker.service
     # TODO check stop exit strategy
     #check_stop
 }
