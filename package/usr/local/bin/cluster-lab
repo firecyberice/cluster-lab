@@ -249,7 +249,7 @@ dockercompose_reset () {
 #########################
 ##### IP networking #####
 #########################
-helper_check_ip () {
+check_ip () {
     local IP=$1
     local HOSTNAME_IPS=$(hostname -I)
     local i=""
@@ -259,9 +259,9 @@ helper_check_ip () {
         fi
     done
 }
-helper_check_ip_bool () {
+check_ip_bool () {
     local IP="$1"
-    local check=$(helper_check_ip "$IP")
+    local check=$(check_ip "$IP")
     if [[ -n "$check" ]]; then
         return 0
     else
@@ -269,7 +269,7 @@ helper_check_ip_bool () {
     fi
 
 }
-helper_find_ip_of_if () {
+find_ip_of_if () {
     local INTERFACE=$1
     local HOSTNAME_IPS=$(hostname -I)
     local IPA_IP=$(ip a s "$INTERFACE")
@@ -282,18 +282,14 @@ helper_find_ip_of_if () {
 }
 check_linklocal () {
     local IP="169.254."
-    helper_check_ip_bool "$IP"
-}
-find_ip_of_if () {
-    local INTERFACE="$1"
-    helper_find_ip_of_if "$INTERFACE"
+    check_ip_bool "$IP"
 }
 find_if_for_ip () {
     local IP_TO_FIND=$1
     local INTERFACES=$(ip link | grep -v "link/" | awk -F": " '{print $2}')
     local i
     for i in $INTERFACES; do
-        local check=$(helper_find_ip_of_if_helper "$i")
+        local check=$(find_ip_of_if "$i")
         if [[ "$check" == "$IP_TO_FIND" ]]; then
             echo "$i"
         fi
@@ -645,7 +641,7 @@ setmasterip () {
     local counter=0
     # try 10 times with 1 sec pause between each
     while [ $counter -lt 2 ]; do
-        helper_check_ip_bool "${DEFAULT_VLAN_MASTER_IP}"
+        check_ip_bool "${DEFAULT_VLAN_MASTER_IP}"
         if [[ $? == 1 ]]; then
             ip_set "${DEFAULT_VLAN_MASTER_IP}"
         else
