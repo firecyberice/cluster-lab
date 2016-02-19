@@ -61,12 +61,7 @@ Name=${VLAN_INTERFACE}
 [Network]
 DHCP=yes
 EOM
-    systemctl restart systemd-networkd.service
-    if [[ $? == 0 ]]; then
-        echo "IP on ${VLAN_INTERFACE} is: $(find_ip_of_if "${VLAN_INTERFACE}")"
-    else
-        echo "dhclient failed"
-    fi
+    echo "IP on ${VLAN_INTERFACE} is: $(find_ip_of_if "${VLAN_INTERFACE}")"
 }
 ##########################
 ##### AVAHI zeroconf #####
@@ -423,8 +418,9 @@ get_own_ip () {
 get_master_ip () {
     local avahi_ip=$(avahi-browse _cluster._tcp -t -r -p | grep 'os-release=hypriot' | grep '^=' | grep ';Cluster-Master' |  grep 'eth0\.' | grep IPv4 | awk -F ';' 'BEGIN { format="%s\n" }{ printf(format,$8) }')
     if [[ -z "$avahi_ip" ]]; then
-        CLUSTERMASTERIP="${DEFAULT_VLAN_MASTER_IP}"
-        echo "${DEFAULT_VLAN_MASTER_IP}"
+        local myip=$(find_ip_of_if "${VLAN_INTERFACE}")
+        CLUSTERMASTERIP="$myip"
+        echo "$myip"
         return 0
     else
         if [[ "$avahi_ip" != "169.254."* ]]; then
