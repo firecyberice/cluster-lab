@@ -439,7 +439,19 @@ echo "$ip_ret"
 #echo "$iface_ret"
 }
 
-
+ask () {
+    local QUESTION=$1
+    if [[ -z $QUESTION ]]; then
+        QUESTION="Are you sure? (y|n)"
+    fi
+    read -p "$QUESTION" -n 1 -r
+    echo    # (optional) move to a new line
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        return 1
+    else
+        return 0
+    fi
+}
 ##################
 ##### Checks #####
 ##################
@@ -485,12 +497,20 @@ usage:
 
         $0 down             Destroys container (no config changes)
 
+        $0 down             Destroys container (no config changes)
+
+        $0 dockercleanup    Remove ALL  docker container,
+                                        docker networks,
+                                        docker volumes,
+
     setup:
         $0 setup            Opens config file in editor.
 
         $0 envs             Print config parameter.
 
     checks:
+        $0 checkconsul      Show some infos about consul
+
         $0 checkvlan        Show settings of "${VLAN_INTERFACE}".
 
         $0 checkuplink      Show settings for an internet connection.
@@ -501,6 +521,19 @@ EOM
 }
 
 ##### wrapper for interactive usage #####
+checkconsul () {
+    echo "startparameter of consul"
+    echo "++++++++++++++++++++++++"
+    docker inspect -f '{{.Config.Cmd}}' ${PROJECT_NAME}_consul_1
+    echo "++++++++++++++++++++++++"
+    echo "consul / raft leader"
+    echo "++++++++++++++++++++++++"
+    docker exec -it ${PROJECT_NAME}_consul_1  /consul info | grep "leader\|state"
+    echo "++++++++++++++++++++++++"
+    echo "consul members"
+    echo "++++++++++++++++++++++++"
+    docker exec -it ${PROJECT_NAME}_consul_1  /consul members
+}
 checkvlan () {
     printf "list interface parameters including vlan id\n###########################################\n"
     ip -d link show "${VLAN_INTERFACE}"
@@ -598,6 +631,21 @@ EOM
 ######################
 ##### start stop #####
 ######################
+dockercleanup () {
+    ask "Are you sure to remove all container?"
+    if [[ $? == 0 ]]; then
+        docker rm -f rm "$(docker ps -aq)"
+    fi
+    ask "Are you sure to remove all custom networks?"
+    if [[ $? == 0 ]]; then
+        docker network rm "$(docker network ls -q -f type=custom)"
+    fi
+    ask "Are you sure to remove all dangling volumes?"
+    if [[ $? == 0 ]]; then
+        docker volume rm "$(docker volume ls -q -f dangling=value)"
+    fi
+
+}
 stop () {
     echo "STEP 1/6 docker container"
     echo "            stop container"
@@ -749,11 +797,17 @@ if [ $# -eq 1 ]; then
         "up" )
             up
             ;;
+        "dockercleanup" )
+            dockercleanup
+            ;;
         "checkvlan" )
             checkvlan
-             ;;
+            ;;
         "checkuplink" )
             checkuplink
+            ;;
+        "checkconsul" )
+            checkconsul
             ;;
         "setup" )
             setup
