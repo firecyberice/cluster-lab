@@ -61,6 +61,8 @@ Name=${VLAN_INTERFACE}
 [Network]
 DHCP=yes
 EOM
+    systemctl restart systemd-networkd.service
+    sleep 2
     echo "IP on ${VLAN_INTERFACE} is: $(find_ip_of_if "${VLAN_INTERFACE}")"
 }
 ##########################
@@ -497,8 +499,6 @@ usage:
 
         $0 down             Destroys container (no config changes)
 
-        $0 down             Destroys container (no config changes)
-
         $0 dockercleanup    Remove ALL  docker container,
                                         docker networks,
                                         docker volumes,
@@ -524,15 +524,15 @@ EOM
 checkconsul () {
     echo "startparameter of consul"
     echo "++++++++++++++++++++++++"
-    docker inspect -f '{{.Config.Cmd}}' ${PROJECT_NAME}_consul_1
+    docker inspect -f '{{.Config.Cmd}}' ${DOCKER_COMPOSE_PROJECT}_consul_1
     echo "++++++++++++++++++++++++"
     echo "consul / raft leader"
     echo "++++++++++++++++++++++++"
-    docker exec -it ${PROJECT_NAME}_consul_1  /consul info | grep "leader\|state"
+    docker exec -it ${DOCKER_COMPOSE_PROJECT}_consul_1  /consul info | grep "leader\|state"
     echo "++++++++++++++++++++++++"
     echo "consul members"
     echo "++++++++++++++++++++++++"
-    docker exec -it ${PROJECT_NAME}_consul_1  /consul members
+    docker exec -it ${DOCKER_COMPOSE_PROJECT}_consul_1  /consul members
 }
 checkvlan () {
     printf "list interface parameters including vlan id\n###########################################\n"
