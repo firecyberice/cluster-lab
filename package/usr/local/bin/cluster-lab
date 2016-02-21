@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # get docker image names
-. /etc/hypriot/clusterimages.conf
+. /etc/cluster-lab/clusterimages.conf
 
 IMAGE_SWARM=${IMAGE_SWARM:-"hypriot/rpi-swarm:1.1.0"}
 IMAGE_CONSUL=${IMAGE_CONSUL:-"hypriot/rpi-consul:0.6.0"}
 
 # get network config
-. /etc/hypriot/cluster.conf
 
+. /etc/cluster-lab/cluster.conf
 DOCKER_COMPOSE_PROJECT=${DOCKER_COMPOSE_PROJECT:-"hypriot"}
 BROADCAST=${BROADCAST:-192.168.200.255}
 NETMASK=${NETMASK:-"/24"}
@@ -26,354 +26,7 @@ DHCP_RANGE_TO=${DHCP_RANGE_TO:-192.168.200.10 }
 # variables
 VLAN_INTERFACE=eth0.${VLAN_ID}
 
-
-################
-##### VLAN #####
-################
-vlan_add () {
-    #echo "create vlan with tag VLAN_ID on eth0"
-    ip link add link eth0 name "${VLAN_INTERFACE}" type vlan id "${VLAN_ID}"
-    ip link set dev "${VLAN_INTERFACE}" up
-}
-
-vlan_reset () {
-    #echo "deleting existing vlan interface"
-    ip link delete dev "${VLAN_INTERFACE}" type vlan
-}
-####################
-#### IP config #####
-####################
-ip_set () {
-    local IP="$1"
-    #echo "set ip address on vlan 200"
-    ip addr add "${IP}""${NETMASK}" dev "${VLAN_INTERFACE}"
-    ip link set dev "${VLAN_INTERFACE}" up
-}
-
-ip_request () {
-    #echo "get ip address from DHCP"
-    ip link set dev "${VLAN_INTERFACE}" up
-    # use the systemd way for dhclient
-cat << EOM > /etc/systemd/network/"${VLAN_INTERFACE}".network
-[Match]
-Name=${VLAN_INTERFACE}
-
-[Network]
-DHCP=yes
-EOM
-    systemctl restart systemd-networkd.service
-    sleep 2
-    echo "IP on ${VLAN_INTERFACE} is: $(find_ip_of_if "${VLAN_INTERFACE}")"
-}
-##########################
-##### AVAHI zeroconf #####
-##########################
-avahi_config () {
-    #echo "configure avahi only on eth0.200 \(vlan with id 200\)"
-    # if file backup exists do not override!
-    if [ ! -f "/etc/avahi/avahi-daemon.conf_bak" ]; then
-      cp /etc/avahi/avahi-daemon.conf /etc/avahi/avahi-daemon.conf_bak
-    fi
-    sed -i -e 's/#deny-interfaces=eth1/deny-interfaces=eth1,wlan0,docker0/' \
-    -e "s/#allow-interfaces=eth0/allow-interfaces=eth0,${VLAN_INTERFACE}/" \
-    -e 's/use-ipv6=yes/use-ipv6=no/' /etc/avahi/avahi-daemon.conf
-}
-
-avahi_clusterservice () {
-    #echo "create avahi cluster-master"
-    if [ -f "/etc/avahi/services/cluster-master.service" ]; then
-        rm -f /etc/avahi/services/cluster-master.service
-    else
-cat << EOM > /etc/avahi/services/cluster-master.service
-<?xml version="1.0" standalone='no'?><!--*-nxml-*-->
-<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
-<service-group>
-  <name replace-wildcards="yes">Cluster-Master=%h</name>
-  <service>
-    <type>_cluster._tcp</type>
-    <port>22</port>
-    <txt-record>os-release=hypriot</txt-record>
-  </service>
-</service-group>
-EOM
-    fi
-}
-
-avahi_reset () {
-    #echo "cleanup dnsmasq dhcp server"
-    if [ -f "/etc/avahi/avahi-daemon.conf_bak" ]; then
-      rm -f /etc/avahi/avahi-daemon.conf
-      mv /etc/avahi/avahi-daemon.conf_bak /etc/avahi/avahi-daemon.conf
-    fi
-}
-########################
-##### DHCP dnsmasq #####
-########################
-dhcp_config () {
-    #echo "setup dnsmasq dhcp server"
-    # if file backup exists do not override!
-    if [ ! -f "/etc/dnsmasq.conf_bak" ]; then
-      cp /etc/dnsmasq.conf /etc/dnsmasq.conf_bak
-    fi
-cat << EOM > /etc/dnsmasq.conf
-
-# set domain name
-domain=hypriot.cluster
-interface=${VLAN_INTERFACE}
-
-# TODO dns stuff forward consul to ...
-#server=/consul/${SELFIP}:8600
-
-# general DHCP stuff (see RFC 2132)
-#
-# 1:  subnet masq
-# 3:  default router
-# 6:  DNS server
-# 12: hostname
-# 15: DNS domain (unneeded with option 'domain')
-# 28: broadcast address
-# 42: time server
-#
-
-dhcp-authoritative
-dhcp-leasefile=/var/lib/misc/dnsmasq.leases
-dhcp-option=1,${DHCP_NETMASK}
-dhcp-option=28,${DHCP_BROADCAST}
-# TODO deliver dns server
-#dhcp-option=6,${SELFIP}
-
-# dynamic DHCP range with a 1 hour lease
-#
-dhcp-range=${DHCP_RANGE_FROM},${DHCP_RANGE_TO},1h
-
-EOM
-}
-
-dhcp_reset () {
-    #echo "cleanup dnsmasq dhcp server"
-    if [ -f "/etc/dnsmasq.conf_bak" ];then
-        rm -f /etc/dnsmasq.conf
-        mv /etc/dnsmasq.conf_bak /etc/dnsmasq.conf
-    fi
-}
-##################
-##### DOCKER #####
-##################
-docker_config () {
-    ARCH=$(uname -m)
-    #echo "make backup of /etc/default docker"
-    # if file backup exists do not override!
-    if [ ! -f "/etc/default/docker_bak" ]; then
-      cp /etc/default/docker /etc/default/docker_bak
-    fi
-#echo "change config with new options for libnetwork introduced in docker 1.9"
-cat << EOM > /etc/default/docker
-DOCKER_OPTS="--storage-driver=overlay -D -H tcp://${SELFIP}:2375 --cluster-advertise ${SELFIP}:2375 --cluster-store consul://${SELFIP}:8500 --label hypriot.arch=${ARCH} --label hypriot.hierarchy=${MASTERorSLAVE} ${ADDITIONAL_DOCKER_OPTS}"
-EOM
-}
-
-docker_reset () {
-    #echo "reset docker config"
-    if [ -f "/etc/default/docker_bak" ]; then
-        rm -f /etc/default/docker
-        mv /etc/default/docker_bak /etc/default/docker
-    fi
-}
-##########################
-##### docker-compose #####
-##########################
-dockercompose_config () {
-YMLFILE="/etc/hypriot/docker-compose.yml"
-cat << EOM > $YMLFILE
-version: "2"
-services:
-  swarm:
-    image: ${IMAGE_SWARM}
-    depends_on:
-      - consul
-    command: join --advertise ${SELFIP}:2375 consul://${SELFIP}:8500
-
-  swarmmanage:
-    image: ${IMAGE_SWARM}
-    ports:
-      - 2378:2375
-    depends_on:
-      - consul
-    command: manage --replication --advertise ${SELFIP}:2378 consul://${SELFIP}:8500
-
-  consul:
-    image: ${IMAGE_CONSUL}
-    restart: always
-    ports:
-      - ${SELFIP}:8400:8400
-      - ${SELFIP}:8500:8500
-      - ${SELFIP}:8600:8600
-      - ${SELFIP}:8301:8301
-      - ${SELFIP}:8302:8302
-    network_mode: host
-EOM
-
-if [ "$MASTERorSLAVE" == "master" ]; then
-cat << EOM >> $YMLFILE
-    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -bootstrap-expect 1
-
-EOM
-
-elif [ "$MASTERorSLAVE" == "slave" ]; then
-cat << EOM >> $YMLFILE
-    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -join ${CLUSTERMASTERIP}:8301
-
-EOM
-fi
-}
-
-dockercompose_start () {
-    #echo "start consul and swarm container"
-    if [ -f "/etc/hypriot/docker-compose.yml" ];then
-        docker-compose -f /etc/hypriot/docker-compose.yml -p "${DOCKER_COMPOSE_PROJECT}" up -d
-    fi
-}
-
-dockercompose_stop () {
-    #echo "stop consul and swarm container"
-    if [ -f "/etc/hypriot/docker-compose.yml" ];then
-        docker-compose -f /etc/hypriot/docker-compose.yml -p "${DOCKER_COMPOSE_PROJECT}" down --volumes
-    fi
-}
-
-dockercompose_reset () {
-    #echo "cleanup docker container"
-    if [ -f "/etc/hypriot/docker-compose.yml" ];then
-        rm -f /etc/hypriot/docker-compose.yml
-    fi
-}
-
-#########################
-##### IP networking #####
-#########################
-check_ip () {
-    local IP=$1
-    local HOSTNAME_IPS=$(hostname -I)
-    local i=""
-    for i in $HOSTNAME_IPS; do
-        if [[ "$i" == *"$IP"* ]]; then
-            echo "$ip"
-        fi
-    done
-}
-check_ip_bool () {
-    local IP="$1"
-    local check=$(check_ip "$IP")
-    if [[ -n "$check" ]]; then
-        return 0
-    else
-        return 1
-    fi
-
-}
-find_ip_of_if () {
-    local INTERFACE=$1
-    local HOSTNAME_IPS=$(hostname -I)
-    local IPA_IP=$(ip a s "$INTERFACE")
-    local i=""
-    for i in $HOSTNAME_IPS; do
-        if [[ "$IPA_IP" == *"$i"* ]]; then
-          echo "$i"
-        fi
-    done
-}
-check_linklocal () {
-    local IP="169.254."
-    check_ip_bool "$IP"
-}
-find_if_for_ip () {
-    local IP_TO_FIND=$1
-    local INTERFACES=$(ip link | grep -v "link/" | awk -F": " '{print $2}')
-    local i
-    for i in $INTERFACES; do
-        local check=$(find_ip_of_if "$i")
-        if [[ "$check" == "$IP_TO_FIND" ]]; then
-            echo "$i"
-        fi
-    done
-}
-
-fix_routing () {
-    # update routes
-    local IP=8.8.8.8
-    # test if default route for VLAN_INTERFACE
-    ip route | grep default | grep "${VLAN_INTERFACE}"  > /dev/null 2>&1;
-    if [[ $? == 0 ]]; then
-        # remove route if exists
-        ip route del default dev "${VLAN_INTERFACE}"
-    fi
-    # check ping google ip
-    ping -c 1 "$IP" > /dev/null 2>&1;
-    if [[ $? == 0 ]]; then
-        # return on success
-        return 0
-    fi
-
-    local counter=0
-    # try 10 times with 1 sec pause between each
-    while [ $counter -lt 10 ]; do
-        local status="$(ip link show dev eth0 | grep \"state UP\")"
-        if [[ -z "$status" ]]; then
-            ip link set dev eth0 up
-        else
-            counter=$(( counter + 10 ))
-        fi
-        conter=$(( conter + 1 ))
-        sleep 1
-    done
-    echo "link eth0 down"
-    return 1
-
-    # test if default route for eth0
-    ip route | grep default | grep eth0  > /dev/null 2>&1;
-    if [[ $? == 0 ]]; then
-        # return on success
-        return 0
-    fi
-
-    counter=0
-    # try 10 times with 1 sec pause between each
-    while [ $counter -lt 10 ]; do
-        echo "Request new IP"
-        dhclient eth0
-        if [[ $? == 0 ]]; then
-            # return on success
-            return 0
-        fi
-        counter=$(( counter + 1 ))
-        sleep 2
-    done
-    echo "Routing broken"
-    return 1
-}
-
-fix_dns () {
-    # if ping 8.8.8.8 and not google.com add nameserver
-    # check ping google ip
-    ping -c 1 8.8.8.8 > /dev/null 2>&1;
-    local ret_ping_ip=$?
-
-    # check ping google.com
-    ping -c 1 google.com > /dev/null 2>&1;
-    local ret_name_ip=$?
-
-    # ip is working but names not
-    if [[ ($ret_ping_ip == 0) && ($ret_name_ip != 0) ]]; then
-        # add google dns as first DNS
-        #echo -e "nameserver 8.8.8.8\n" | cat - /etc/resolv.conf | > /etc/resolv.conf
-        #echo -e "nameserver 8.8.8.8\n" | cat - /etc/resolv.conf | tee /etc/resolv.conf > /dev/null
-        sed -i '1i nameserver 8.8.8.8\n' /etc/resolv.conf
-    else
-        # return on success
-        return 0
-    fi
-}
-
+. /usr/local/lib/cluster-lab/*
 
 detect_master () {
     local return_code=0
@@ -441,19 +94,6 @@ echo "$ip_ret"
 #echo "$iface_ret"
 }
 
-ask () {
-    local QUESTION=$1
-    if [[ -z $QUESTION ]]; then
-        QUESTION="Are you sure? (y|n)"
-    fi
-    read -p "$QUESTION" -n 1 -r
-    echo    # (optional) move to a new line
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        return 1
-    else
-        return 0
-    fi
-}
 ##################
 ##### Checks #####
 ##################
@@ -485,54 +125,20 @@ echo $foo
 ##########################
 ##### Helper & Tools #####
 ##########################
-usage () {
-cat << EOM
-usage:
-        $0 start            Start the cluster lab.
-
-        $0 stop             Stop the cluster lab.
-
-    docker-compose
-        $0 downup           Destroys container and creates them again (no config changes)
-
-        $0 up               Starts container.
-
-        $0 down             Destroys container (no config changes)
-
-        $0 dockercleanup    Remove ALL  docker container,
-                                        docker networks,
-                                        docker volumes,
-
-    setup:
-        $0 setup            Opens config file in editor.
-
-        $0 envs             Print config parameter.
-
-    checks:
-        $0 checkconsul      Show some infos about consul
-
-        $0 checkvlan        Show settings of "${VLAN_INTERFACE}".
-
-        $0 checkuplink      Show settings for an internet connection.
-
-        $0 checkstop        Test reset of node to pre cluster-lab state.
-
-EOM
-}
 
 ##### wrapper for interactive usage #####
 checkconsul () {
     echo "startparameter of consul"
     echo "++++++++++++++++++++++++"
-    docker inspect -f '{{.Config.Cmd}}' ${DOCKER_COMPOSE_PROJECT}_consul_1
+    docker inspect -f '{{.Config.Cmd}}' "${DOCKER_COMPOSE_PROJECT}_consul_1"
     echo "++++++++++++++++++++++++"
     echo "consul / raft leader"
     echo "++++++++++++++++++++++++"
-    docker exec -it ${DOCKER_COMPOSE_PROJECT}_consul_1  /consul info | grep "leader\|state"
+    docker exec -it "${DOCKER_COMPOSE_PROJECT}_consul_1"  /consul info | grep "leader\|state"
     echo "++++++++++++++++++++++++"
     echo "consul members"
     echo "++++++++++++++++++++++++"
-    docker exec -it ${DOCKER_COMPOSE_PROJECT}_consul_1  /consul members
+    docker exec -it "${DOCKER_COMPOSE_PROJECT}_consul_1"  /consul members
 }
 checkvlan () {
     printf "list interface parameters including vlan id\n###########################################\n"
@@ -594,58 +200,10 @@ down () {
     echo "Stopping management containers"
     dockercompose_stop
 }
-setup () {
-    editor /etc/hypriot/cluster.conf
-}
-envs () {
-cat << EOM
-
-Current configuration:
-
-DOCKER_COMPOSE_PROJECT  ${DOCKER_COMPOSE_PROJECT}
-BROADCAST               ${BROADCAST}
-NETMASK                 ${NETMASK}
-
-VLAN_ID                 ${VLAN_ID:-200}
-VLAN_INTERFACE          eth0.${VLAN_ID}
-DEFAULT_VLAN_MASTER_IP  ${DEFAULT_VLAN_MASTER_IP}
-DEFAULT_VLAN_TEST_IP    ${DEFAULT_VLAN_TEST_IP}
-
-# DHCP
-DHCP_BROADCAST          ${DHCP_BROADCAST}
-DHCP_NETMASK            ${DHCP_NETMASK}
-DHCP_RANGE_FROM         ${DHCP_RANGE_FROM}
-DHCP_RANGE_TO           ${DHCP_RANGE_TO}
-
-EOM
-cat << EOM
-
-Used docker images:
-
-IMAGE_SWARM         ${IMAGE_SWARM}
-IMAGE_CONSUL        ${IMAGE_CONSUL}
-
-EOM
-}
 
 ######################
 ##### start stop #####
 ######################
-dockercleanup () {
-    ask "Are you sure to remove all container?"
-    if [[ $? == 0 ]]; then
-        docker rm -f rm "$(docker ps -aq)"
-    fi
-    ask "Are you sure to remove all custom networks?"
-    if [[ $? == 0 ]]; then
-        docker network rm "$(docker network ls -q -f type=custom)"
-    fi
-    ask "Are you sure to remove all dangling volumes?"
-    if [[ $? == 0 ]]; then
-        docker volume rm "$(docker volume ls -q -f dangling=value)"
-    fi
-
-}
 stop () {
     echo "STEP 1/6 docker container"
     echo "            stop container"
@@ -769,6 +327,106 @@ start () {
 
 }
 
+########################
+##### UI functions #####
+########################
+dockercleanup () {
+    ask "Are you sure to remove all container?"
+    if [[ $? == 0 ]]; then
+        docker rm -f rm "$(docker ps -aq)"
+    fi
+    ask "Are you sure to remove all custom networks?"
+    if [[ $? == 0 ]]; then
+        docker network rm "$(docker network ls -q -f type=custom)"
+    fi
+    ask "Are you sure to remove all dangling volumes?"
+    if [[ $? == 0 ]]; then
+        docker volume rm "$(docker volume ls -q -f dangling=value)"
+    fi
+}
+
+envs () {
+cat << EOM
+
+Current configuration:
+
+DOCKER_COMPOSE_PROJECT  ${DOCKER_COMPOSE_PROJECT}
+BROADCAST               ${BROADCAST}
+NETMASK                 ${NETMASK}
+
+VLAN_ID                 ${VLAN_ID:-200}
+VLAN_INTERFACE          eth0.${VLAN_ID}
+DEFAULT_VLAN_MASTER_IP  ${DEFAULT_VLAN_MASTER_IP}
+DEFAULT_VLAN_TEST_IP    ${DEFAULT_VLAN_TEST_IP}
+
+# DHCP
+DHCP_BROADCAST          ${DHCP_BROADCAST}
+DHCP_NETMASK            ${DHCP_NETMASK}
+DHCP_RANGE_FROM         ${DHCP_RANGE_FROM}
+DHCP_RANGE_TO           ${DHCP_RANGE_TO}
+
+EOM
+cat << EOM
+
+Used docker images:
+
+IMAGE_SWARM         ${IMAGE_SWARM}
+IMAGE_CONSUL        ${IMAGE_CONSUL}
+
+EOM
+}
+
+usage () {
+cat << EOM
+usage:
+        $0 start            Start the cluster lab.
+
+        $0 stop             Stop the cluster lab.
+
+    docker-compose
+        $0 downup           Destroys container and creates them again (no config changes)
+
+        $0 up               Starts container.
+
+        $0 down             Destroys container (no config changes)
+
+        $0 dockercleanup    Remove ALL  docker container,
+                                        docker networks,
+                                        docker volumes,
+
+    setup:
+        $0 setup            Opens config file in editor.
+
+        $0 envs             Print config parameter.
+
+    checks:
+        $0 checkconsul      Show some infos about consul
+
+        $0 checkvlan        Show settings of "${VLAN_INTERFACE}".
+
+        $0 checkuplink      Show settings for an internet connection.
+
+        $0 checkstop        Test reset of node to pre cluster-lab state.
+
+EOM
+}
+ask () {
+    local QUESTION=$1
+    if [[ -z $QUESTION ]]; then
+        QUESTION="Are you sure? (y|n)"
+    fi
+    read -p "$QUESTION" -n 1 -r
+    echo    # (optional) move to a new line
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        return 1
+    else
+        return 0
+    fi
+}
+
+setup () {
+    editor /etc/cluster-lab/cluster.conf
+}
 
 ###################################
 #                                 #

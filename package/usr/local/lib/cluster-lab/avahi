@@ -1,0 +1,41 @@
+##########################
+##### AVAHI zeroconf #####
+##########################
+avahi_config () {
+    #echo "configure avahi only on eth0.200 \(vlan with id 200\)"
+    # if file backup exists do not override!
+    if [ ! -f "/etc/avahi/avahi-daemon.conf_bak" ]; then
+      cp /etc/avahi/avahi-daemon.conf /etc/avahi/avahi-daemon.conf_bak
+    fi
+    sed -i -e 's/#deny-interfaces=eth1/deny-interfaces=eth1,wlan0,docker0/' \
+    -e "s/#allow-interfaces=eth0/allow-interfaces=eth0,${VLAN_INTERFACE}/" \
+    -e 's/use-ipv6=yes/use-ipv6=no/' /etc/avahi/avahi-daemon.conf
+}
+
+avahi_clusterservice () {
+    #echo "create avahi cluster-master"
+    if [ -f "/etc/avahi/services/cluster-master.service" ]; then
+        rm -f /etc/avahi/services/cluster-master.service
+    else
+cat << EOM > /etc/avahi/services/cluster-master.service
+<?xml version="1.0" standalone='no'?><!--*-nxml-*-->
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">Cluster-Master=%h</name>
+  <service>
+    <type>_cluster._tcp</type>
+    <port>22</port>
+    <txt-record>os-release=hypriot</txt-record>
+  </service>
+</service-group>
+EOM
+    fi
+}
+
+avahi_reset () {
+    #echo "cleanup dnsmasq dhcp server"
+    if [ -f "/etc/avahi/avahi-daemon.conf_bak" ]; then
+      rm -f /etc/avahi/avahi-daemon.conf
+      mv /etc/avahi/avahi-daemon.conf_bak /etc/avahi/avahi-daemon.conf
+    fi
+}
