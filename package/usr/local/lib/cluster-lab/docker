@@ -1,0 +1,91 @@
+##################
+##### DOCKER #####
+##################
+docker_config () {
+    ARCH=$(uname -m)
+    #echo "make backup of /etc/default docker"
+    # if file backup exists do not override!
+    if [ ! -f "/etc/default/docker_bak" ]; then
+      cp /etc/default/docker /etc/default/docker_bak
+    fi
+#echo "change config with new options for libnetwork introduced in docker 1.9"
+cat << EOM > /etc/default/docker
+DOCKER_OPTS="--storage-driver=overlay -D -H tcp://${SELFIP}:2375 --cluster-advertise ${SELFIP}:2375 --cluster-store consul://${SELFIP}:8500 --label hypriot.arch=${ARCH} --label hypriot.hierarchy=${MASTERorSLAVE} ${ADDITIONAL_DOCKER_OPTS}"
+EOM
+}
+
+docker_reset () {
+    #echo "reset docker config"
+    if [ -f "/etc/default/docker_bak" ]; then
+        rm -f /etc/default/docker
+        mv /etc/default/docker_bak /etc/default/docker
+    fi
+}
+##########################
+##### docker-compose #####
+##########################
+dockercompose_config () {
+YMLFILE="/etc/hypriot/docker-compose.yml"
+cat << EOM > $YMLFILE
+version: "2"
+services:
+  swarm:
+    image: ${IMAGE_SWARM}
+    depends_on:
+      - consul
+    command: join --advertise ${SELFIP}:2375 consul://${SELFIP}:8500
+
+  swarmmanage:
+    image: ${IMAGE_SWARM}
+    ports:
+      - 2378:2375
+    depends_on:
+      - consul
+    command: manage --replication --advertise ${SELFIP}:2378 consul://${SELFIP}:8500
+
+  consul:
+    image: ${IMAGE_CONSUL}
+    restart: always
+    ports:
+      - ${SELFIP}:8400:8400
+      - ${SELFIP}:8500:8500
+      - ${SELFIP}:8600:8600
+      - ${SELFIP}:8301:8301
+      - ${SELFIP}:8302:8302
+    network_mode: host
+EOM
+
+if [ "$MASTERorSLAVE" == "master" ]; then
+cat << EOM >> $YMLFILE
+    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -bootstrap-expect 1
+
+EOM
+
+elif [ "$MASTERorSLAVE" == "slave" ]; then
+cat << EOM >> $YMLFILE
+    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -join ${CLUSTERMASTERIP}:8301
+
+EOM
+fi
+}
+
+dockercompose_start () {
+    #echo "start consul and swarm container"
+    if [ -f "/etc/hypriot/docker-compose.yml" ];then
+        docker-compose -f /etc/hypriot/docker-compose.yml -p "${DOCKER_COMPOSE_PROJECT}" up -d
+    fi
+}
+
+dockercompose_stop () {
+    #echo "stop consul and swarm container"
+    if [ -f "/etc/hypriot/docker-compose.yml" ];then
+        docker-compose -f /etc/hypriot/docker-compose.yml -p "${DOCKER_COMPOSE_PROJECT}" down --volumes
+    fi
+}
+
+dockercompose_reset () {
+    #echo "cleanup docker container"
+    if [ -f "/etc/hypriot/docker-compose.yml" ];then
+        rm -f /etc/hypriot/docker-compose.yml
+    fi
+}

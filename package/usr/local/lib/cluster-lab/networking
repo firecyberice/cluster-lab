@@ -1,0 +1,163 @@
+################
+##### VLAN #####
+################
+vlan_add () {
+    #echo "create vlan with tag VLAN_ID on eth0"
+    ip link add link eth0 name "${VLAN_INTERFACE}" type vlan id "${VLAN_ID}"
+    ip link set dev "${VLAN_INTERFACE}" up
+}
+
+vlan_reset () {
+    #echo "deleting existing vlan interface"
+    ip link delete dev "${VLAN_INTERFACE}" type vlan
+}
+####################
+#### IP config #####
+####################
+ip_set () {
+    local IP="$1"
+    #echo "set ip address on vlan 200"
+    ip addr add "${IP}""${NETMASK}" dev "${VLAN_INTERFACE}"
+    ip link set dev "${VLAN_INTERFACE}" up
+}
+
+ip_request () {
+    #echo "get ip address from DHCP"
+    ip link set dev "${VLAN_INTERFACE}" up
+    # use the systemd way for dhclient
+cat << EOM > /etc/systemd/network/"${VLAN_INTERFACE}".network
+[Match]
+Name=${VLAN_INTERFACE}
+
+[Network]
+DHCP=yes
+EOM
+    systemctl restart systemd-networkd.service
+    sleep 2
+    echo "IP on ${VLAN_INTERFACE} is: $(find_ip_of_if "${VLAN_INTERFACE}")"
+}
+#########################
+##### IP networking #####
+#########################
+check_ip () {
+    local IP=$1
+    local HOSTNAME_IPS=$(hostname -I)
+    local i=""
+    for i in $HOSTNAME_IPS; do
+        if [[ "$i" == *"$IP"* ]]; then
+            echo "$ip"
+        fi
+    done
+}
+check_ip_bool () {
+    local IP="$1"
+    local check=$(check_ip "$IP")
+    if [[ -n "$check" ]]; then
+        return 0
+    else
+        return 1
+    fi
+
+}
+find_ip_of_if () {
+    local INTERFACE=$1
+    local HOSTNAME_IPS=$(hostname -I)
+    local IPA_IP=$(ip a s "$INTERFACE")
+    local i=""
+    for i in $HOSTNAME_IPS; do
+        if [[ "$IPA_IP" == *"$i"* ]]; then
+          echo "$i"
+        fi
+    done
+}
+check_linklocal () {
+    local IP="169.254."
+    check_ip_bool "$IP"
+}
+find_if_for_ip () {
+    local IP_TO_FIND=$1
+    local INTERFACES=$(ip link | grep -v "link/" | awk -F": " '{print $2}')
+    local i
+    for i in $INTERFACES; do
+        local check=$(find_ip_of_if "$i")
+        if [[ "$check" == "$IP_TO_FIND" ]]; then
+            echo "$i"
+        fi
+    done
+}
+
+fix_routing () {
+    # update routes
+    local IP=8.8.8.8
+    # test if default route for VLAN_INTERFACE
+    ip route | grep default | grep "${VLAN_INTERFACE}"  > /dev/null 2>&1;
+    if [[ $? == 0 ]]; then
+        # remove route if exists
+        ip route del default dev "${VLAN_INTERFACE}"
+    fi
+    # check ping google ip
+    ping -c 1 "$IP" > /dev/null 2>&1;
+    if [[ $? == 0 ]]; then
+        # return on success
+        return 0
+    fi
+
+    local counter=0
+    # try 10 times with 1 sec pause between each
+    while [ $counter -lt 10 ]; do
+        local status="$(ip link show dev eth0 | grep \"state UP\")"
+        if [[ -z "$status" ]]; then
+            ip link set dev eth0 up
+        else
+            counter=$(( counter + 10 ))
+        fi
+        conter=$(( conter + 1 ))
+        sleep 1
+    done
+    echo "link eth0 down"
+    return 1
+
+    # test if default route for eth0
+    ip route | grep default | grep eth0  > /dev/null 2>&1;
+    if [[ $? == 0 ]]; then
+        # return on success
+        return 0
+    fi
+
+    counter=0
+    # try 10 times with 1 sec pause between each
+    while [ $counter -lt 10 ]; do
+        echo "Request new IP"
+        dhclient eth0
+        if [[ $? == 0 ]]; then
+            # return on success
+            return 0
+        fi
+        counter=$(( counter + 1 ))
+        sleep 2
+    done
+    echo "Routing broken"
+    return 1
+}
+
+fix_dns () {
+    # if ping 8.8.8.8 and not google.com add nameserver
+    # check ping google ip
+    ping -c 1 8.8.8.8 > /dev/null 2>&1;
+    local ret_ping_ip=$?
+
+    # check ping google.com
+    ping -c 1 google.com > /dev/null 2>&1;
+    local ret_name_ip=$?
+
+    # ip is working but names not
+    if [[ ($ret_ping_ip == 0) && ($ret_name_ip != 0) ]]; then
+        # add google dns as first DNS
+        #echo -e "nameserver 8.8.8.8\n" | cat - /etc/resolv.conf | > /etc/resolv.conf
+        #echo -e "nameserver 8.8.8.8\n" | cat - /etc/resolv.conf | tee /etc/resolv.conf > /dev/null
+        sed -i '1i nameserver 8.8.8.8\n' /etc/resolv.conf
+    else
+        # return on success
+        return 0
+    fi
+}

@@ -1,0 +1,50 @@
+########################
+##### DHCP dnsmasq #####
+########################
+dhcp_config () {
+    #echo "setup dnsmasq dhcp server"
+    # if file backup exists do not override!
+    if [ ! -f "/etc/dnsmasq.conf_bak" ]; then
+      cp /etc/dnsmasq.conf /etc/dnsmasq.conf_bak
+    fi
+cat << EOM > /etc/dnsmasq.conf
+
+# set domain name
+domain=hypriot.cluster
+interface=${VLAN_INTERFACE}
+
+# TODO dns stuff forward consul to ...
+#server=/consul/${SELFIP}:8600
+
+# general DHCP stuff (see RFC 2132)
+#
+# 1:  subnet masq
+# 3:  default router
+# 6:  DNS server
+# 12: hostname
+# 15: DNS domain (unneeded with option 'domain')
+# 28: broadcast address
+# 42: time server
+#
+
+dhcp-authoritative
+dhcp-leasefile=/var/lib/misc/dnsmasq.leases
+dhcp-option=1,${DHCP_NETMASK}
+dhcp-option=28,${DHCP_BROADCAST}
+# TODO deliver dns server
+#dhcp-option=6,${SELFIP}
+
+# dynamic DHCP range with a 1 hour lease
+#
+dhcp-range=${DHCP_RANGE_FROM},${DHCP_RANGE_TO},1h
+
+EOM
+}
+
+dhcp_reset () {
+    #echo "cleanup dnsmasq dhcp server"
+    if [ -f "/etc/dnsmasq.conf_bak" ];then
+        rm -f /etc/dnsmasq.conf
+        mv /etc/dnsmasq.conf_bak /etc/dnsmasq.conf
+    fi
+}
