@@ -1,3 +1,5 @@
+#!/bin/bash
+
 ##################
 ##### DOCKER #####
 ##################
@@ -21,6 +23,43 @@ docker_reset () {
         mv /etc/default/docker_bak /etc/default/docker
     fi
 }
+############################
+##### docker container #####
+############################
+docker_run () {
+    #echo "start consul and swarm container"
+
+    #consul
+    local consul_docker="docker run -dit --restart always --name ${DOCKER_COMPOSE_PROJECT}_consul --net host"
+    local consul_ports="-p ${SELFIP}:8400:8400 -p ${SELFIP}:8500:8500 -p ${SELFIP}:8600:8600 -p ${SELFIP}:8301:8301 -p ${SELFIP}:8302:8302 ${IMAGE_CONSUL}"
+
+  if [ "$MASTERorSLAVE" == "master" ]; then
+      local consul_command="agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -bootstrap-expect 1"
+
+  elif [ "$MASTERorSLAVE" == "slave" ]; then
+      local consul_command="agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -join ${CLUSTERMASTERIP}:8301"
+  fi
+
+  local cmd="$consul_docker $consul_ports $consul_command"
+  eval $cmd
+
+  sleep 2
+
+  # swarm join
+  docker run -dit --restart always --name "${DOCKER_COMPOSE_PROJECT}_swarm" ${IMAGE_SWARM} join --advertise ${SELFIP}:2375 consul://${SELFIP}:8500
+
+  #swarm manage
+  docker run -dit --restart always --name "${DOCKER_COMPOSE_PROJECT}_swarmmanage" -p 2378:2375 ${IMAGE_SWARM} manage --replication --advertise ${SELFIP}:2378 consul://${SELFIP}:8500
+
+}
+
+docker_rm () {
+    #echo "stop consul and swarm container"
+    docker rm -vf ${DOCKER_COMPOSE_PROJECT}_swarmmanage
+    docker rm -vf ${DOCKER_COMPOSE_PROJECT}_swarm
+    docker rm -vf ${DOCKER_COMPOSE_PROJECT}_consul
+}
+
 ##########################
 ##### docker-compose #####
 ##########################
@@ -87,68 +126,5 @@ dockercompose_reset () {
     #echo "cleanup docker container"
     if [ -f "/etc/hypriot/docker-compose.yml" ];then
         rm -f /etc/hypriot/docker-compose.yml
-    fi
-}
-
-
-
-docker () {
-YMLFILE="/etc/hypriot/docker-compose.yml"
-cat << EOM > $YMLFILE
-version: "2"
-services:
-  consul:
-    image: ${IMAGE_CONSUL}
-    restart: always
-    ports:
-      - ${SELFIP}:8400:8400
-      - ${SELFIP}:8500:8500
-      - ${SELFIP}:8600:8600
-      - ${SELFIP}:8301:8301
-      - ${SELFIP}:8302:8302
-    network_mode: host
-EOM
-
-if [ "$MASTERorSLAVE" == "master" ]; then
-cat << EOM >> $YMLFILE
-    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -bootstrap-expect 1
-
-EOM
-
-elif [ "$MASTERorSLAVE" == "slave" ]; then
-cat << EOM >> $YMLFILE
-    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -join ${CLUSTERMASTERIP}:8301
-
-EOM
-fi
-}
-
-docker_run () {
-    #echo "start consul and swarm container"
-    docker run -dit --name "${DOCKER_COMPOSE_PROJECT}_swarm" ${IMAGE_SWARM}
-      image: ${IMAGE_SWARM}
-      depends_on:
-        - consul
-      command: join --advertise ${SELFIP}:2375 consul://${SELFIP}:8500
-
-    swarmmanage:
-      image: ${IMAGE_SWARM}
-      ports:
-        - 2378:2375
-      depends_on:
-        - consul
-      command: manage --replication --advertise ${SELFIP}:2378 consul://${SELFIP}:8500
-
-
-    if [ -f "/etc/hypriot/docker-compose.yml" ];then
-        docker-compose -f /etc/hypriot/docker-compose.yml -p "${DOCKER_COMPOSE_PROJECT}" up -d
-
-    fi
-}
-
-docker_rm () {
-    #echo "stop consul and swarm container"
-    if [ -f "/etc/hypriot/docker-compose.yml" ];then
-        docker-compose -f /etc/hypriot/docker-compose.yml -p "${DOCKER_COMPOSE_PROJECT}" down --volumes
     fi
 }
