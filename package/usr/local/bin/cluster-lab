@@ -14,8 +14,8 @@ BROADCAST=${BROADCAST:-192.168.200.255}
 NETMASK=${NETMASK:-"/24"}
 
 VLAN_ID=${VLAN_ID:-200}
-DEFAULT_VLAN_MASTER_IP=${DEFAULT_VLAN_MASTER_IP:-192.168.200.1}
-DEFAULT_VLAN_TEST_IP=${DEFAULT_VLAN_TEST_IP:-192.168.200.5}
+VLAN_MASTER_IP=${VLAN_MASTER_IP:-192.168.200.1}
+VLAN_TEST_IP=${VLAN_TEST_IP:-192.168.200.5}
 
 
 DHCP_BROADCAST=${DHCP_BROADCAST:-192.168.200.255}
@@ -31,7 +31,7 @@ VLAN_INTERFACE=eth0.${VLAN_ID}
 detect_master () {
     local return_code=0
     # set ip for checking avahi
-    ip_set "$DEFAULT_VLAN_TEST_IP"
+    ip_set "$VLAN_TEST_IP"
     # if CLUSTERMASTERIP is empty then this machine is the leader"
     local avahi_ip=$(avahi-browse _cluster._tcp -t -r -p | grep 'os-release=hypriot' | grep '^=' | grep ';Cluster-Master' |  grep 'eth0\.' | grep IPv4 | awk -F ';' 'BEGIN { format="%s\n" }{ printf(format,$8) }')
 
@@ -247,11 +247,11 @@ setmasterip () {
     local counter=0
     # try 10 times with 1 sec pause between each
     while [ $counter -lt 2 ]; do
-        check_ip_bool "${DEFAULT_VLAN_MASTER_IP}"
+        check_ip_bool "${VLAN_MASTER_IP}"
         if [[ $? == 1 ]]; then
-            ip_set "${DEFAULT_VLAN_MASTER_IP}"
+            ip_set "${VLAN_MASTER_IP}"
         else
-            echo "IP configured: ""${DEFAULT_VLAN_MASTER_IP}"
+            echo "IP configured: ""${VLAN_MASTER_IP}"
             return 0
         fi
         counter=$(( counter + 1 ))
@@ -356,8 +356,8 @@ NETMASK                 ${NETMASK}
 
 VLAN_ID                 ${VLAN_ID:-200}
 VLAN_INTERFACE          eth0.${VLAN_ID}
-DEFAULT_VLAN_MASTER_IP  ${DEFAULT_VLAN_MASTER_IP}
-DEFAULT_VLAN_TEST_IP    ${DEFAULT_VLAN_TEST_IP}
+VLAN_MASTER_IP  ${VLAN_MASTER_IP}
+VLAN_TEST_IP    ${VLAN_TEST_IP}
 
 # DHCP
 DHCP_BROADCAST          ${DHCP_BROADCAST}
