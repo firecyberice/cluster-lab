@@ -1,0 +1,71 @@
+#!/bin/bash
+
+ask () {
+local QUESTION=$1
+read -p "$QUESTION" -n 1 -r
+echo    # (optional) move to a new line
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    return 1
+else
+    return 0
+fi
+}
+
+docker ps -a
+docker volume ls
+docker network ls
+ask "cleanup Docker-compose? "
+if [[ $? == 0 ]]; then
+    cluster-lab down
+    docker ps -a
+    docker volume ls
+    docker network ls
+fi
+
+ask "cleanup Docker? "
+if [[ $? == 0 ]]; then
+    docker rm -fv "$(docker ps -aq)"
+    docker volume rm "$(docker volume ls -q)"
+    docker network rm "$(docker network ls)"
+fi
+docker ps -a
+docker volume ls
+docker network ls
+
+
+ls -la /etc/default/docker* /etc/dnsmasq.conf* /etc/avahi/avahi-daemon.conf* /etc/avahi/services/
+ask "Reset configs? "
+if [[ $? == 1 ]]; then
+    exit 1
+else
+    mv /etc/default/docker_bak /etc/default/docker
+    mv /etc/dnsmasq.conf_bak /etc/dnsmasq.conf
+    mv /etc/avahi/avahi-daemon.conf_bak /etc/avahi/avahi-daemon.conf
+
+    rm -f /etc/avahi/services/cluster-master.service
+    rm -f /etc/hypriot/docker-compose.yml
+    ls -la /etc/default/docker* /etc/dnsmasq.conf* /etc/avahi/avahi-daemon.conf* /etc/avahi/services/
+fi
+
+ask "remove eth0.200? "
+if [[ $? == 0 ]]; then
+    ip link delete link dev eth0.200
+fi
+
+ask "Restart services? "
+if [[ $? == 1 ]]; then
+    exit 1
+else
+    set +e +x
+
+    echo stopping dnsmasq avahi docker
+    systemctl stop dnsmasq.service
+    systemctl stop avahi-daemon.service
+    systemctl stop docker.service
+
+    echo starting avahi and docker
+    systemctl start avahi-daemon.service
+    systemctl start docker.service
+
+    set -e -x
+fi
