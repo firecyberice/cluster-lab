@@ -1,2 +1,1 @@
-etc/hypriot/cluster.conf
-etc/hypriot/clusterimages.conf
+etc/cluster-lab/cluster.conf

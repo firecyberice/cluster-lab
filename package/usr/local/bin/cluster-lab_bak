@@ -1,0 +1,473 @@
+#!/bin/bash
+
+# include common helper functions
+. /usr/local/lib/cluster-lab/common
+
+# include cluster-lab config
+. /etc/cluster-lab/cluster.conf
+
+# include cluster-lab functions
+for sourcefile in /usr/local/lib/cluster-lab/*.lib; do 
+  . $sourcefile
+done
+
+
+
+
+
+detect_master () {
+    local return_code=0
+    # set ip for checking avahi
+    ip_set "$VLAN_TEST_IP"
+    # if CLUSTERMASTERIP is empty then this machine is the leader"
+    local avahi_ip=$(avahi-browse _cluster._tcp -t -r -p | grep 'os-release=hypriot' | grep '^=' | grep ';Cluster-Master' |  grep 'eth0\.' | grep IPv4 | awk -F ';' 'BEGIN { format="%s\n" }{ printf(format,$8) }')
+
+    if [[ -z "$avahi_ip" ]]; then
+        # No IP => master node
+        return_code=0
+    else
+        check_linklocal
+        if [[ $? == 1 ]]; then
+            # No LinkLocal IP but slave node
+            return_code=1
+        else
+            #LinkLocal IP and slave node
+            # TODO fix IP
+            return_code=2
+        fi
+    fi
+    ip addr flush dev "${VLAN_INTERFACE}"
+    return $return_code
+}
+
+get_own_ip () {
+    local IP=$(ip addr s dev "${VLAN_INTERFACE}" | grep -v inet6 | grep inet | awk '{print $2 }' | cut -d'/'  -f 1)
+    local new_func=$(find_ip_of_if "${VLAN_INTERFACE}")
+    if [[ "$new_func" != "169.254."* ]]; then
+        SELFIP="$new_func"
+        echo "$new_func"
+        return 0
+    else
+        echo "The own IP is a LINKLOCAL IP"
+        return 1
+    fi
+}
+
+get_master_ip () {
+    local avahi_ip=$(avahi-browse _cluster._tcp -t -r -p | grep 'os-release=hypriot' | grep '^=' | grep ';Cluster-Master' |  grep 'eth0\.' | grep IPv4 | awk -F ';' 'BEGIN { format="%s\n" }{ printf(format,$8) }')
+    if [[ -z "$avahi_ip" ]]; then
+        local myip=$(find_ip_of_if "${VLAN_INTERFACE}")
+        CLUSTERMASTERIP="$myip"
+        echo "$myip"
+        return 0
+    else
+        if [[ "$avahi_ip" != "169.254."* ]]; then
+            CLUSTERMASTERIP="$avahi_ip"
+            echo "$avahi_ip"
+            return 0
+        else
+            echo "The master IP is a LINKLOCAL IP"
+            return 1
+        fi
+    fi
+}
+
+test_IP_settings () {
+check_linklocal
+local ip_ret=$(find_ip_of_if "$VLAN_INTERFACE")
+echo "$ip_ret"
+#local ip=
+#local iface_ret=$(find_if_for_ip "$ip")
+#echo "$iface_ret"
+}
+
+##################
+##### Checks #####
+##################
+check_start () {
+# TODO check_start test startup (like cluster_stop??)
+true
+}
+check_stop () {
+    # TODO check_start bool linking
+foo=true
+    if [ -f "/etc/avahi/avahi-daemon.conf_bak" ]; then
+        foo=$foo && false
+    fi
+    if [ -f "/etc/avahi/services/cluster-master.service" ]; then
+        foo=$foo && false
+    fi
+    if [ -f "/etc/dnsmasq.conf_bak" ]; then
+        foo=$foo && false
+    fi
+    if [ -f "/etc/default/docker_bak" ]; then
+        foo=$foo && false
+    fi
+    if [ -f "/etc/hypriot/docker-compose.yml" ]; then
+        foo=$foo && false
+    fi
+echo $foo
+}
+
+##########################
+##### Helper & Tools #####
+##########################
+
+##### wrapper for interactive usage #####
+checkconsul () {
+    echo "startparameter of consul"
+    echo "++++++++++++++++++++++++"
+    docker inspect -f '{{.Config.Cmd}}' "${DOCKER_COMPOSE_PROJECT}_consul_1"
+    echo "++++++++++++++++++++++++"
+    echo "consul / raft leader"
+    echo "++++++++++++++++++++++++"
+    docker exec -it "${DOCKER_COMPOSE_PROJECT}_consul_1"  /consul info | grep "leader\|state"
+    echo "++++++++++++++++++++++++"
+    echo "consul members"
+    echo "++++++++++++++++++++++++"
+    docker exec -it "${DOCKER_COMPOSE_PROJECT}_consul_1"  /consul members
+}
+checkvlan () {
+    printf "list interface parameters including vlan id\n###########################################\n"
+    ip -d link show "${VLAN_INTERFACE}"
+
+    printf "list ip addresses\n#################\n"
+    ip addr show "${VLAN_INTERFACE}"
+}
+checkuplink () {
+    printf "list routes\n###########\n"
+    ip route show
+
+    printf "view DNS server\n###############\n"
+    cat /etc/resolv.conf
+
+    printf "test ping ip\n############\n"
+    ping -c 4 8.8.8.8
+
+    printf "test ping dns\n############\n"
+    ping -c 4 google.com
+}
+checkstop () {
+    echo "Report existing configuration backups:"
+    if [ -f "/etc/avahi/avahi-daemon.conf_bak" ]; then
+        echo -e "Avahi-daemon backup exists > \033[31m config NOT resetted \033[0m"
+    fi
+    if [ -f "/etc/avahi/services/cluster-master.service" ]; then
+        echo -e "Avahi cluster-master.service exists > \033[31m this node is master \033[0m"
+    fi
+    if [ -f "/etc/dnsmasq.conf_bak" ]; then
+        echo -e "Dnsmasq backup exists > \033[31m config NOT resetted \033[0m"
+    fi
+    if [ -f "/etc/default/docker_bak" ]; then
+        echo -e "Docker config backup exists > \033[31m config NOT resetted \033[0m"
+    fi
+    if [ -f "/etc/hypriot/docker-compose.yml" ]; then
+        echo -e "Docker-compose.yml exists > \033[31m config NOT resetted \033[0m"
+    fi
+    read -p "Press return to continue: "
+    echo "Get systemd status of used services:"
+    systemctl status avahi-daemon.service
+    systemctl status dnsmasq.service
+    systemctl status docker.service
+    systemctl status hypriot-cluster.service
+}
+downup () {
+    echo "Stopping management containers"
+    dockercompose_stop
+    echo "wait 2 more seconds"
+    sleep 2
+    echo "Starting management containers"
+    dockercompose_start
+}
+up () {
+    echo "Starting management containers"
+    dockercompose_start
+}
+down () {
+    echo "Stopping management containers"
+    dockercompose_stop
+}
+
+######################
+##### start stop #####
+######################
+stop () {
+    echo "STEP 1/6 docker container"
+    echo "            stop container"
+    dockercompose_stop
+    echo "            remove docker-compose.yml"
+    dockercompose_reset
+
+    echo "STEP 2/6 docker engine"
+    echo "            reset config of docker"
+    docker_reset
+    echo "            restart docker engine"
+    systemctl restart docker.service
+
+    echo "STEP 3/6 vlan"
+    echo "            remove vlan ${VLAN_INTERFACE}"
+    vlan_reset
+
+    echo "STEP 4/6 avahi-daemon"
+    echo "            reset avahi config"
+    avahi_reset
+    echo "            restart avahi-daemon"
+    systemctl restart avahi-daemon.service
+
+    echo "STEP 5/6 avahi-daemon"
+    echo "            disable cluster-master if active"
+    if [ -f "/etc/avahi/services/cluster-master.service" ]; then
+        avahi_clusterservice
+    fi
+
+    echo "STEP 6/6 dnsmasq"
+    echo "            reset dnsmasq config"
+    dhcp_reset
+    echo "            stop dnsmasq"
+    systemctl stop dnsmasq.service
+
+    # TODO check stop exit strategy
+    #check_stop
+}
+
+setmasterip () {
+    local counter=0
+    # try 10 times with 1 sec pause between each
+    while [ $counter -lt 2 ]; do
+        check_ip_bool "${VLAN_MASTER_IP}"
+        if [[ $? == 1 ]]; then
+            ip_set "${VLAN_MASTER_IP}"
+        else
+            echo "IP configured: ""${VLAN_MASTER_IP}"
+            return 0
+        fi
+        counter=$(( counter + 1 ))
+        sleep 1
+    done
+    echo "IP configuring failed"
+    return 1
+}
+
+setup_master () {
+    # TODO return values
+    echo "    STEP 3.2.1/6"
+    echo "                  create cluster-master.service for avahi"
+    if [ ! -f "/etc/avahi/services/cluster-master.service" ]; then
+        avahi_clusterservice
+    fi
+
+    echo "    STEP 3.2.2/6 dnsmasq"
+    echo "                  configure dnsmasq"
+    dhcp_config
+    echo "                  restart dnsmasq"
+    systemctl restart dnsmasq.service
+}
+
+start () {
+    echo "STEP 1/6 vlan"
+    echo "            create vlan ${VLAN_ID}"
+    vlan_add
+
+    echo "STEP 2/6 avahi"
+    echo "            configure avahi-daemon"
+    avahi_config
+    echo "            restart avahi-daemon"
+    systemctl restart avahi-daemon.service
+
+    echo "STEP 3/6 master or slave"
+    detect_master
+    if [[ $? == 0 ]]; then
+        MASTERorSLAVE="master"
+        echo "    STEP 3.1/6 set IP (master)"
+        setmasterip
+        #        test_IP_settings
+
+        echo "    STEP 3.2/6 configure master"
+        setup_master
+    else
+        MASTERorSLAVE="slave"
+        echo "    STEP 3.1/6 request IP (slave)"
+        ip_request
+        #        test_IP_settings
+    fi
+    echo "            Configured node as ${MASTERorSLAVE}"
+
+    echo "STEP 4/6 get configured IPs"
+    SELFIP=$(get_own_ip)
+    CLUSTERMASTERIP=$(get_master_ip)
+    echo "            selfIP: $SELFIP clustermasterIP: $CLUSTERMASTERIP"
+    #    test_IP_settings
+
+    echo "STEP 5/6 docker"
+    echo "            configure docker"
+    docker_config
+    echo "            restart docker"
+    systemctl restart docker.service
+
+    echo "STEP 6/6 docker container (docker-compose)"
+    echo "            create docker-compose.yml"
+    dockercompose_config
+    echo "            start container"
+    dockercompose_start
+    # TODO check startup exit strategy
+    #check_start
+
+}
+
+########################
+##### UI functions #####
+########################
+dockercleanup () {
+    ask "Are you sure to remove all container?"
+    if [[ $? == 0 ]]; then
+        docker rm -f rm "$(docker ps -aq)"
+    fi
+    ask "Are you sure to remove all custom networks?"
+    if [[ $? == 0 ]]; then
+        docker network rm "$(docker network ls -q -f type=custom)"
+    fi
+    ask "Are you sure to remove all dangling volumes?"
+    if [[ $? == 0 ]]; then
+        docker volume rm "$(docker volume ls -q -f dangling=value)"
+    fi
+}
+
+envs () {
+cat << EOM
+
+Current configuration:
+
+DOCKER_COMPOSE_PROJECT  ${DOCKER_COMPOSE_PROJECT}
+BROADCAST               ${BROADCAST}
+NETMASK                 ${NETMASK}
+
+VLAN_ID                 ${VLAN_ID:-200}
+VLAN_INTERFACE          eth0.${VLAN_ID}
+VLAN_MASTER_IP  ${VLAN_MASTER_IP}
+VLAN_TEST_IP    ${VLAN_TEST_IP}
+
+# DHCP
+DHCP_BROADCAST          ${DHCP_BROADCAST}
+DHCP_NETMASK            ${DHCP_NETMASK}
+DHCP_RANGE_FROM         ${DHCP_RANGE_FROM}
+DHCP_RANGE_TO           ${DHCP_RANGE_TO}
+
+EOM
+cat << EOM
+
+Used docker images:
+
+IMAGE_SWARM         ${IMAGE_SWARM}
+IMAGE_CONSUL        ${IMAGE_CONSUL}
+
+EOM
+}
+
+usage () {
+cat << EOM
+usage:
+        $0 start            Start the cluster lab.
+
+        $0 stop             Stop the cluster lab.
+
+    docker-compose
+        $0 downup           Destroys container and creates them again (no config changes)
+
+        $0 up               Starts container.
+
+        $0 down             Destroys container (no config changes)
+
+        $0 dockercleanup    Remove ALL  docker container,
+                                        docker networks,
+                                        docker volumes,
+
+    setup:
+        $0 setup            Opens config file in editor.
+
+        $0 envs             Print config parameter.
+
+    checks:
+        $0 checkconsul      Show some infos about consul
+
+        $0 checkvlan        Show settings of "${VLAN_INTERFACE}".
+
+        $0 checkuplink      Show settings for an internet connection.
+
+        $0 checkstop        Test reset of node to pre cluster-lab state.
+
+EOM
+}
+ask () {
+    local QUESTION=$1
+    if [[ -z $QUESTION ]]; then
+        QUESTION="Are you sure? (y|n)"
+    fi
+    read -p "$QUESTION" -n 1 -r
+    echo    # (optional) move to a new line
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        return 1
+    else
+        return 0
+    fi
+}
+
+setup () {
+    editor /etc/cluster-lab/cluster.conf
+}
+
+###################################
+#                                 #
+#     M A I N   P R O G R A M     #
+#                                 #
+###################################
+
+# Run this script as sudo!
+if [ $# -eq 1 ]; then
+    case "$1" in
+        "start" )
+            start
+            ;;
+        "stop" )
+            stop
+            ;;
+        "checkstop" )
+            checkstop
+            ;;
+        "downup" )
+            downup
+            ;;
+        "down" )
+            down
+            ;;
+        "up" )
+            up
+            ;;
+        "dockercleanup" )
+            dockercleanup
+            ;;
+        "checkvlan" )
+            checkvlan
+            ;;
+        "checkuplink" )
+            checkuplink
+            ;;
+        "checkconsul" )
+            checkconsul
+            ;;
+        "setup" )
+            setup
+            ;;
+        "envs" )
+            envs
+            ;;
+        * )
+        if [[ $DEBUG == "true" ]]; then
+            "$@"
+        else
+            usage
+        fi
+            ;;
+    esac
+else
+    usage
+fi

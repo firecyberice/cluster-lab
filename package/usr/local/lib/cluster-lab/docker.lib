@@ -4,25 +4,22 @@
 ##### DOCKER #####
 ##################
 docker_config () {
-    ARCH=$(uname -m)
-    #echo "make backup of /etc/default docker"
-    # if file backup exists do not override!
-    if [ ! -f "/etc/default/docker_bak" ]; then
-      cp /etc/default/docker /etc/default/docker_bak
-    fi
-#echo "change config with new options for libnetwork introduced in docker 1.9"
-cat << EOM > /etc/default/docker
-DOCKER_OPTS="--storage-driver=overlay -D -H tcp://${SELFIP}:2375 --cluster-advertise ${SELFIP}:2375 --cluster-store consul://${SELFIP}:8500 --label hypriot.arch=${ARCH} --label hypriot.hierarchy=${MASTERorSLAVE} ${ADDITIONAL_DOCKER_OPTS}"
-EOM
+  # create backup of /etc/default/docker config
+  if [[ (! -f "/etc/default/docker.cluster-lab-backup") ]]; then
+    cp /etc/default/docker /etc/default/docker.cluster-lab-backup
+  fi
+  cat <<-EOM > /etc/default/docker
+    DOCKER_OPTS=$(eval "echo ${DOCKER_OPTS}")
+  EOM
 }
 
 docker_reset () {
-    #echo "reset docker config"
-    if [ -f "/etc/default/docker_bak" ]; then
-        rm -f /etc/default/docker
-        mv /etc/default/docker_bak /etc/default/docker
-    fi
+  if [[ ( -f "/etc/default/docker.cluster-lab-backup") ]]; then  
+    rm -f /etc/default/docker
+    mv /etc/default/docker.cluster-lab-backup /etc/default/docker
+  fi
 }
+
 ############################
 ##### docker container #####
 ############################
