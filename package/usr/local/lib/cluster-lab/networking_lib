@@ -3,42 +3,48 @@
 ################
 ##### VLAN #####
 ################
-configure_vlan(){
-    #echo "create vlan with tag VLAN_ID on eth0"
-    ip link add link eth0 name "${VLAN_INTERFACE}" type vlan id "${VLAN_ID}"
-    ip link set dev "${VLAN_INTERFACE}" up
+add_vlan_interface(){
+  ip link add link eth0 name "${VLAN_INTERFACE}" type vlan id "${VLAN_ID}"
+  ip link set dev "${VLAN_INTERFACE}" up
 }
 
-reset_vlan(){
-    #echo "deleting existing vlan interface"
-    ip link delete dev "${VLAN_INTERFACE}" type vlan
+remove_vlan_interface(){
+  ip link delete dev "${VLAN_INTERFACE}" type vlan
 }
 
 ####################
 #### IP config #####
 ####################
-ip_set () {
-    local IP="$1"
-    #echo "set ip address on vlan 200"
-    ip addr add "${IP}""${NETMASK}" dev "${VLAN_INTERFACE}"
-    ip link set dev "${VLAN_INTERFACE}" up
+add_ip_to_vlan_interface(){
+  local ip="$1"
+
+  ip addr add "${ip}${VLAN_NETMASK}" dev "${VLAN_INTERFACE}"
+  ip link set dev "${VLAN_INTERFACE}" up
 }
 
-ip_request () {
-    #echo "get ip address from DHCP"
-    ip link set dev "${VLAN_INTERFACE}" up
-    # use the systemd way for dhclient
-cat << EOM > /etc/systemd/network/"${VLAN_INTERFACE}".network
-[Match]
-Name=${VLAN_INTERFACE}
+remove_ip_from_vlan_interface(){
+  local ip="$1"
 
-[Network]
-DHCP=yes
-EOM
-    systemctl restart systemd-networkd.service
-    sleep 2
-    echo "IP on ${VLAN_INTERFACE} is: $(find_ip_of_if "${VLAN_INTERFACE}")"
+  ip addr delete "${ip}${VLAN_NETMASK}" dev "${VLAN_INTERFACE}"
 }
+
+get_current_node_ip(){
+  if [[ -z "${NODE_IP}" ]]; then
+    ip link set dev "${VLAN_INTERFACE}" up
+    dhclient "${VLAN_INTERFACE}" 
+  
+    # try 3 times to get an ip address
+    for i in {1..3}; do
+      NODE_IP=$(ip_of_interface "${VLAN_INTERFACE}")
+      if [[ -n "$NODE_IP" ]]; then
+        break 
+      fi 
+      sleep 2
+    done
+  fi
+  echo "$NODE_IP" 
+}
+
 #########################
 ##### IP networking #####
 #########################
@@ -62,17 +68,7 @@ check_ip_bool () {
     fi
 
 }
-find_ip_of_if () {
-    local INTERFACE=$1
-    local HOSTNAME_IPS=$(hostname -I)
-    local IPA_IP=$(ip a s "$INTERFACE")
-    local i=""
-    for i in $HOSTNAME_IPS; do
-        if [[ "$IPA_IP" == *"$i"* ]]; then
-          echo "$i"
-        fi
-    done
-}
+
 check_linklocal () {
     local IP="169.254."
     check_ip_bool "$IP"
@@ -148,12 +144,73 @@ fix_dns(){
   sed -i '1i nameserver 8.8.8.8\n' /etc/resolv.conf
 }
 
-function configure_networking(){
-  configure_vlan
+function get_current_leader_ip(){
+  if [[ -z "$MASTER_IP" ]]; then
+    add_ip_to_vlan_interface "${VLAN_TEST_IP}"
+
+    avahi_query_result=$(avahi-browse _cluster._tcp --terminate --resolve --parsable --ignore-local)
+    MASTER_IP=$(echo "$avahi_query_result" | grep '^=' | grep ';Cluster-Master' |  grep 'eth0\.' | grep IPv4 | cut -d ';' -f8)
+
+    remove_ip_from_vlan_interface "${VLAN_TEST_IP}"
+  fi
+  echo "$MASTER_IP"
 }
 
+function is_link_local_ip(){
+  local ip="${1}"
+
+  if [[ "$ip" != "169.254."* ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+get_own_ip () {
+    local local_vlan_ip=$(ip_of_interface "${VLAN_INTERFACE}")
+    if [[ "$local_vlan_ip" != "169.254."* ]]; then
+        SELFIP="$local_vlan_ip"
+        echo "$local_vlan_ip"
+        return 0
+    else
+        echo "The own IP is a LINKLOCAL IP"
+        return 1
+    fi
+}
+
+
+
+function configure_networking(){
+  add_vlan_interface
+  if [[ -z "$(get_current_leader_ip)" ]]; then
+    # there is no master yet
+    add_ip_to_vlan_interface "${VLAN_LEADER_IP}"
+  else
+    # we already have a master
+    if [[ -z $(get_current_node_ip) ]]; then
+      echo -e "Failed to configure networking. \nTrying to rollback networking configuration"  
+      reset_networking
+      exit 1
+    fi
+  fi
+}
+
+
 function reset_networking(){
-  reset_vlan
+  remove_vlan_interface
+}
+
+function check_internet_connection(){
+  echo -e "\nInternet Connection"
+  ERRORS=0
+
+  ping -W 1 -c 2 8.8.8.8 > /dev/null 2>&1
+  evaluate_result $? "  Internet is reachable"
+
+  timeout 1 ping -c 1 google.com > /dev/null 2>&1
+  evaluate_result $? "  DNS works"
+
+  return "$ERRORS"
 }
 
 
@@ -163,15 +220,13 @@ function pre_check_networking(){
 
   ip link show | grep -q eth0
   evaluate_result $? "  eth0 exists"
-
-  ping -W 1 -c 2 8.8.8.8 > /dev/null 2>&1
-  evaluate_result $? "  Internet is reachable"
-
-  timeout 1 ping -c 1 google.com > /dev/null 2>&1
-  evaluate_result $? "  DNS works"
-
-  return $ERRORS
+  
+  [[ ! -z "$(ip_of_interface eth0)" ]]
+  evaluate_result $? "  eth0 has an ip address"
+  
+  return "$ERRORS"
 }
+
 
 function post_check_networking(){
   echo -e "\nNetworking"
@@ -179,13 +234,7 @@ function post_check_networking(){
 
   ip link show | grep -q eth0
   evaluate_result $? "  eth0 exists"
-
-  ping -W 1 -c 2 8.8.8.8 > /dev/null 2>&1
-  evaluate_result $? "  Internet is reachable"
-
-  timeout 1 ping -c 1 google.com > /dev/null 2>&1
-  evaluate_result $? "  DNS works"
-
+  
   ip link show | grep -q eth0.${VLAN_ID}
   evaluate_result $? "  eth0.${VLAN_ID} exists"
 
@@ -205,5 +254,5 @@ function post_check_networking(){
   [[ ! "$(ip_of_interface eth0.${VLAN_ID})" =~ $regex ]]
   evaluate_result $? "  eth0.${VLAN_ID} has no local link address"
 
-  return $ERRORS
+  return "$ERRORS"
 }

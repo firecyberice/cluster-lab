@@ -7,7 +7,7 @@
 . /etc/cluster-lab/cluster.conf
 
 # include cluster-lab functions
-for sourcefile in /usr/local/lib/cluster-lab/*.lib; do 
+for sourcefile in /usr/local/lib/cluster-lab/*_lib; do 
   . $sourcefile
 done
 
@@ -31,6 +31,7 @@ function exit_with_message_on_error(){
 function start(){
   pre_check_networking
   exit_with_message_on_error $? "Networking is broken"
+  check_internet_connection
 
   configure_networking
 
@@ -41,6 +42,7 @@ function start(){
 function stop(){
   reset_networking
   pre_check_networking
+  check_internet_connection
 }
 
 if [ $# -eq 1 ]; then
