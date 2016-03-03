@@ -7,7 +7,7 @@
 . /etc/cluster-lab/cluster.conf
 
 # include cluster-lab functions
-for sourcefile in /usr/local/lib/cluster-lab/*_lib; do 
+for sourcefile in /usr/local/lib/cluster-lab/*_lib; do
   . $sourcefile
 done
 
@@ -21,25 +21,46 @@ usage:
 EOM
 }
 
-function exit_with_message_on_error(){
-  if [[ ${1} -gt 0 ]]; then
-    echo "${2}"
-    exit 1
-  fi 
-}
-
 function start(){
   pre_check_networking
   exit_with_message_on_error $? "Networking is broken"
   check_internet_connection
 
-  configure_networking
+  # avahi
+  pre_check_avahi
+  configure_avahi
+  systemctl restart avahi-daemon.service
+  post_check_avahi
 
+  configure_networking
   post_check_networking
   exit_with_message_on_error $? "Networking  broken"
+
+  pre_check_dnsmasq
+  # start additional services if cluster leader
+  if [[ "$(get_current_leader_ip)" == "$(get_current_node_ip)" ]]; then
+    add_leader_service_file
+    post_check_avahi_leader_service
+
+    configure_dnsmasq
+    systemctl retstart dnsmasq.service
+    post_check_dnsmasq
+  fi
+
 }
 
 function stop(){
+  delete_cluster_leader_service_file
+  pre_check_cluster_leader_service
+
+  reset_avahi
+  systemctl restart avahi-daemon.service
+  pre_check_avahi
+
+  reset_dnsmasq
+  systemctl retstart dnsmasq.service
+  pre_check_dnsmasq
+
   reset_networking
   pre_check_networking
   check_internet_connection

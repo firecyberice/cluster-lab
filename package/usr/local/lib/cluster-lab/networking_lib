@@ -1,147 +1,45 @@
 #!/usr/bin/env bash
 
-################
-##### VLAN #####
-################
-add_vlan_interface(){
+# VLAN configuration
+function add_vlan_interface(){
   ip link add link eth0 name "${VLAN_INTERFACE}" type vlan id "${VLAN_ID}"
   ip link set dev "${VLAN_INTERFACE}" up
 }
 
-remove_vlan_interface(){
+function remove_vlan_interface(){
   ip link delete dev "${VLAN_INTERFACE}" type vlan
 }
 
-####################
-#### IP config #####
-####################
-add_ip_to_vlan_interface(){
+# IP configuration
+function add_ip_to_vlan_interface(){
   local ip="$1"
 
   ip addr add "${ip}${VLAN_NETMASK}" dev "${VLAN_INTERFACE}"
   ip link set dev "${VLAN_INTERFACE}" up
 }
 
-remove_ip_from_vlan_interface(){
+function remove_ip_from_vlan_interface(){
   local ip="$1"
 
   ip addr delete "${ip}${VLAN_NETMASK}" dev "${VLAN_INTERFACE}"
 }
 
-get_current_node_ip(){
+function get_current_node_ip(){
   if [[ -z "${NODE_IP}" ]]; then
     ip link set dev "${VLAN_INTERFACE}" up
-    dhclient "${VLAN_INTERFACE}" 
-  
+    dhclient "${VLAN_INTERFACE}"
+
     # try 3 times to get an ip address
     for i in {1..3}; do
-      NODE_IP=$(ip_of_interface "${VLAN_INTERFACE}")
+      NODE_IP=$(get_ip_of_interface "${VLAN_INTERFACE}")
       if [[ -n "$NODE_IP" ]]; then
-        break 
-      fi 
+        break
+        echo "tried to get ip $i times"
+      fi
       sleep 2
     done
   fi
-  echo "$NODE_IP" 
-}
-
-#########################
-##### IP networking #####
-#########################
-check_ip () {
-    local IP=$1
-    local HOSTNAME_IPS=$(hostname -I)
-    local i=""
-    for i in $HOSTNAME_IPS; do
-        if [[ "$i" == *"$IP"* ]]; then
-            echo "$ip"
-        fi
-    done
-}
-check_ip_bool () {
-    local IP="$1"
-    local check=$(check_ip "$IP")
-    if [[ -n "$check" ]]; then
-        return 0
-    else
-        return 1
-    fi
-
-}
-
-check_linklocal () {
-    local IP="169.254."
-    check_ip_bool "$IP"
-}
-
-find_if_for_ip () {
-    local IP_TO_FIND=$1
-    local INTERFACES=$(ip link | grep -v "link/" | awk -F": " '{print $2}')
-    local i
-    for i in $INTERFACES; do
-        local check=$(find_ip_of_if "$i")
-        if [[ "$check" == "$IP_TO_FIND" ]]; then
-            echo "$i"
-        fi
-    done
-}
-
-fix_routing () {
-    # update routes
-    local IP=8.8.8.8
-    # test if default route for VLAN_INTERFACE
-    ip route | grep default | grep "${VLAN_INTERFACE}"  > /dev/null 2>&1;
-    if [[ $? == 0 ]]; then
-        # remove route if exists
-        ip route del default dev "${VLAN_INTERFACE}"
-    fi
-    # check ping google ip
-    ping -c 1 "$IP" > /dev/null 2>&1;
-    if [[ $? == 0 ]]; then
-        # return on success
-        return 0
-    fi
-
-    local counter=0
-    # try 10 times with 1 sec pause between each
-    while [ $counter -lt 10 ]; do
-        local status="$(ip link show dev eth0 | grep \"state UP\")"
-        if [[ -z "$status" ]]; then
-            ip link set dev eth0 up
-        else
-            counter=$(( counter + 10 ))
-        fi
-        conter=$(( conter + 1 ))
-        sleep 1
-    done
-    echo "link eth0 down"
-    return 1
-
-    # test if default route for eth0
-    ip route | grep default | grep eth0  > /dev/null 2>&1;
-    if [[ $? == 0 ]]; then
-        # return on success
-        return 0
-    fi
-
-    counter=0
-    # try 10 times with 1 sec pause between each
-    while [ $counter -lt 10 ]; do
-        echo "Request new IP"
-        dhclient eth0
-        if [[ $? == 0 ]]; then
-            # return on success
-            return 0
-        fi
-        counter=$(( counter + 1 ))
-        sleep 2
-    done
-    echo "Routing broken"
-    return 1
-}
-
-fix_dns(){
-  sed -i '1i nameserver 8.8.8.8\n' /etc/resolv.conf
+  echo "$NODE_IP"
 }
 
 function get_current_leader_ip(){
@@ -149,7 +47,7 @@ function get_current_leader_ip(){
     add_ip_to_vlan_interface "${VLAN_TEST_IP}"
 
     avahi_query_result=$(avahi-browse _cluster._tcp --terminate --resolve --parsable --ignore-local)
-    MASTER_IP=$(echo "$avahi_query_result" | grep '^=' | grep ';Cluster-Master' |  grep 'eth0\.' | grep IPv4 | cut -d ';' -f8)
+    MASTER_IP=$(echo "$avahi_query_result" | grep '^=' | grep ';Cluster-Leader' |  grep 'eth0\.' | grep IPv4 | cut -d ';' -f8)
 
     remove_ip_from_vlan_interface "${VLAN_TEST_IP}"
   fi
@@ -159,47 +57,14 @@ function get_current_leader_ip(){
 function is_link_local_ip(){
   local ip="${1}"
 
-  if [[ "$ip" != "169.254."* ]]; then
+  if [[ "$ip" == "169.254."* ]]; then
     return 0
   else
     return 1
   fi
 }
 
-get_own_ip () {
-    local local_vlan_ip=$(ip_of_interface "${VLAN_INTERFACE}")
-    if [[ "$local_vlan_ip" != "169.254."* ]]; then
-        SELFIP="$local_vlan_ip"
-        echo "$local_vlan_ip"
-        return 0
-    else
-        echo "The own IP is a LINKLOCAL IP"
-        return 1
-    fi
-}
-
-
-
-function configure_networking(){
-  add_vlan_interface
-  if [[ -z "$(get_current_leader_ip)" ]]; then
-    # there is no master yet
-    add_ip_to_vlan_interface "${VLAN_LEADER_IP}"
-  else
-    # we already have a master
-    if [[ -z $(get_current_node_ip) ]]; then
-      echo -e "Failed to configure networking. \nTrying to rollback networking configuration"  
-      reset_networking
-      exit 1
-    fi
-  fi
-}
-
-
-function reset_networking(){
-  remove_vlan_interface
-}
-
+# various checks of network connectivity
 function check_internet_connection(){
   echo -e "\nInternet Connection"
   ERRORS=0
@@ -220,10 +85,10 @@ function pre_check_networking(){
 
   ip link show | grep -q eth0
   evaluate_result $? "  eth0 exists"
-  
-  [[ ! -z "$(ip_of_interface eth0)" ]]
+
+  [[ ! -z "$(get_ip_of_interface eth0)" ]]
   evaluate_result $? "  eth0 has an ip address"
-  
+
   return "$ERRORS"
 }
 
@@ -234,25 +99,59 @@ function post_check_networking(){
 
   ip link show | grep -q eth0
   evaluate_result $? "  eth0 exists"
-  
-  ip link show | grep -q eth0.${VLAN_ID}
+
+  ip link show | grep -q "eth0.${VLAN_ID}"
   evaluate_result $? "  eth0.${VLAN_ID} exists"
 
   # check if the vlan 192.168.200 subnet exists
   regex="$(escape_ip_for_regex "${VLAN_SUBNET}")\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$"
-  [[ "$(ip_of_interface eth0.${VLAN_ID})" =~ $regex ]]
+  [[ "$(get_ip_of_interface "eth0.${VLAN_ID}")" =~ $regex ]]
   evaluate_result $? "  eth0.${VLAN_ID} has correct IP from vlan network"
 
   ping -W 1 -c 2 "${VLAN_LEADER_IP}" > /dev/null 2>&1
   evaluate_result $? "  Cluster leader is reachable"
 
-  number_of_ips=$(ip addr show dev eth0.${VLAN_ID} | grep -c "inet\s")
+  number_of_ips=$(ip addr show dev "eth0.${VLAN_ID}" | grep -c "inet\s")
   [[ "$number_of_ips" -eq 1 ]]
   evaluate_result $? "  eth0.${VLAN_ID} has exactly one IP"
 
   regex="169\.254\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$"
-  [[ ! "$(ip_of_interface eth0.${VLAN_ID})" =~ $regex ]]
+  [[ ! "$(get_ip_of_interface "eth0.${VLAN_ID}")" =~ $regex ]]
   evaluate_result $? "  eth0.${VLAN_ID} has no local link address"
 
   return "$ERRORS"
+}
+
+# setup basic networking
+function configure_networking(){
+  add_vlan_interface
+  if [[ -z "$(get_current_leader_ip)" ]]; then
+    # there is no leader yet
+
+    # ensure that there is no link local ip on the VLAN_INTERFACE
+    ip addr flush dev "${VLAN_INTERFACE}"
+
+    add_ip_to_vlan_interface "${VLAN_LEADER_IP}"
+  else
+    # we already have a leader
+    if [[ -z $(get_current_node_ip) ]]; then
+      # we have no ip from dhcp
+      echo -e "Failed to configure networking. \nTrying to rollback networking configuration"
+      reset_networking
+      exit 1
+    else
+      # we have an ip from dhcp
+      if [[ "$(is_link_local_ip "$(get_current_node_ip)")" == "1" ]]; then
+        # we got a link local ip which is wrong
+        echo -e "Failed to configure networking. \nTrying to rollback networking configuration"
+        reset_networking
+        exit 1
+      fi
+    fi
+  fi
+}
+
+# reset basic networking
+function reset_networking(){
+  remove_vlan_interface
 }
