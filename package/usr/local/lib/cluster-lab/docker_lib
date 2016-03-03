@@ -1,39 +1,33 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-##################
-##### DOCKER #####
-##################
-docker_config () {
+# docker engine
+function configure_docker(){
   # create backup of /etc/default/docker config
   if [[ (! -f "/etc/default/docker.cluster-lab-backup") ]]; then
     cp /etc/default/docker /etc/default/docker.cluster-lab-backup
   fi
-  cat <<-EOM > /etc/default/docker
-    DOCKER_OPTS=$(eval "echo ${DOCKER_OPTS}")
-  EOM
+  echo "DOCKER_OPTS=$(eval "echo ${DOCKER_OPTS}")" > /etc/default/docker
 }
 
-docker_reset () {
-  if [[ ( -f "/etc/default/docker.cluster-lab-backup") ]]; then  
+function reset_docker(){
+  if [[ ( -f "/etc/default/docker.cluster-lab-backup") ]]; then
     rm -f /etc/default/docker
     mv /etc/default/docker.cluster-lab-backup /etc/default/docker
   fi
 }
 
-############################
-##### docker container #####
-############################
-docker_run () {
-    #echo "start consul and swarm container"
+
+# docker container
+function run_docker(){
 
     #consul
     local consul_docker="docker run -dit --restart always --name ${DOCKER_COMPOSE_PROJECT}_consul --net host"
     local consul_ports="-p ${SELFIP}:8400:8400 -p ${SELFIP}:8500:8500 -p ${SELFIP}:8600:8600 -p ${SELFIP}:8301:8301 -p ${SELFIP}:8302:8302 ${IMAGE_CONSUL}"
 
-  if [ "$MASTERorSLAVE" == "master" ]; then
+  if [ "$LEADER_or_FOLLOWER" == "leader" ]; then
       local consul_command="agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -bootstrap-expect 1"
 
-  elif [ "$MASTERorSLAVE" == "slave" ]; then
+  elif [ "$LEADER_or_FOLLOWER" == "follower" ]; then
       local consul_command="agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -join ${CLUSTERMASTERIP}:8301"
   fi
 
@@ -50,17 +44,15 @@ docker_run () {
 
 }
 
-docker_rm () {
-    #echo "stop consul and swarm container"
+function remove_docker(){
     docker rm -vf ${DOCKER_COMPOSE_PROJECT}_swarmmanage
     docker rm -vf ${DOCKER_COMPOSE_PROJECT}_swarm
     docker rm -vf ${DOCKER_COMPOSE_PROJECT}_consul
 }
 
-##########################
-##### docker-compose #####
-##########################
-dockercompose_config () {
+
+# docker-compose
+function configure_dockercompose(){
 YMLFILE="/etc/hypriot/docker-compose.yml"
 cat << EOM > $YMLFILE
 version: "2"
@@ -91,36 +83,26 @@ services:
     network_mode: host
 EOM
 
-if [ "$MASTERorSLAVE" == "master" ]; then
-cat << EOM >> $YMLFILE
-    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -bootstrap-expect 1
-
-EOM
-
-elif [ "$MASTERorSLAVE" == "slave" ]; then
-cat << EOM >> $YMLFILE
-    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -join ${CLUSTERMASTERIP}:8301
-
-EOM
+if [ "$LEADER_or_FOLLOWER" == "leader" ]; then
+  echo "    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -bootstrap-expect 1" >> $YMLFILE
+elif [ "$LEADER_or_FOLLOWER" == "follower" ]; then
+  echo "    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -join ${CLUSTERMASTERIP}:8301" >> $YMLFILE
 fi
 }
 
-dockercompose_start () {
-    #echo "start consul and swarm container"
+function start_dockercompose(){
     if [ -f "/etc/hypriot/docker-compose.yml" ];then
         docker-compose -f /etc/hypriot/docker-compose.yml -p "${DOCKER_COMPOSE_PROJECT}" up -d
     fi
 }
 
-dockercompose_stop () {
-    #echo "stop consul and swarm container"
+function stop_dockercompose(){
     if [ -f "/etc/hypriot/docker-compose.yml" ];then
         docker-compose -f /etc/hypriot/docker-compose.yml -p "${DOCKER_COMPOSE_PROJECT}" down --volumes
     fi
 }
 
-dockercompose_reset () {
-    #echo "cleanup docker container"
+function reset_dockercompose(){
     if [ -f "/etc/hypriot/docker-compose.yml" ];then
         rm -f /etc/hypriot/docker-compose.yml
     fi
