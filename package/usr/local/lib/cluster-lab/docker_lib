@@ -43,8 +43,6 @@ function post_check_docker(){
   netstat --numeric --listening --programs --tcp --inet | grep 'docker' | grep -q -E "${ESCAPED_VLAN_NODE_IP}:2375"
   evaluate_result $? "  docker listens on ${VLAN_NODE_IP} via tcp at port 2375 (Docker-Engine)"
 
-  netstat --numeric --listening --programs --tcp --inet | grep 'docker' | grep -q -E "${ESCAPED_VLAN_NODE_IP}:7946"
-  evaluate_result $? "  docker listens on ${VLAN_NODE_IP} via tcp at port 7946 (Serf)"
 }
 
 # docker engine
@@ -67,6 +65,8 @@ function configure_docker(){
 }
 
 function reset_docker(){
+  echo -e "\n\e[34mReset Docker\e[0m"
+
   if [[ -f "/etc/default/docker.cluster-lab-backup" ]]; then
     mv -f /etc/default/docker.cluster-lab-backup /etc/default/docker
     systemctl restart docker.service

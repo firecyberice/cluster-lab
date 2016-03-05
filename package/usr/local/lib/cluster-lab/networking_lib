@@ -238,6 +238,8 @@ function configure_networking(){
 
 # reset basic networking
 function reset_networking(){
+  echo -e "\n\e[34mReset basic networking\e[0m"
+
   remove_vlan_interface
   if [ -f "/etc/avahi/avahi-daemon.conf.cluster-lab-backup" ]; then
     mv -f /etc/avahi/avahi-daemon.conf.cluster-lab-backup /etc/avahi/avahi-daemon.conf

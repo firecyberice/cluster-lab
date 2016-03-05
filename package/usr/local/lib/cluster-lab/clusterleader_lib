@@ -2,7 +2,7 @@
 
 # checks for dnsmasq
 function pre_check_clusterleader(){
-  echo -e "\n DNSmasq"
+  echo -e "\nDNSmasq"
   ERRORS=0
 
   check_if_os_package_exists "dnsmasq"
@@ -18,7 +18,7 @@ function pre_check_clusterleader(){
 }
 
 function post_check_clusterleader(){
-  echo -e "\n DNSmasq"
+  echo -e "\nDNSmasq"
   ERRORS=0
 
   check_if_process_exists "dnsmasq"
@@ -76,6 +76,7 @@ systemctl reload dnsmasq.service
 }
 
 function reset_clusterleader(){
+  echo -e "\n\e[34mReset DNSmasq\e[0m"
   if [ -f "/etc/dnsmasq.conf.cluster-lab-backup" ];then
     mv -f /etc/dnsmasq.conf.cluster-lab-backup /etc/dnsmasq.conf
     systemctl reload dnsmasq.service
