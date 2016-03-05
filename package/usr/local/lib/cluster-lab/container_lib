@@ -113,7 +113,7 @@ function run_docker_container(){
   local consul_ports="-p ${VLAN_NODE_IP}:8400:8400 -p ${VLAN_NODE_IP}:8500:8500 -p ${VLAN_NODE_IP}:8600:8600 -p ${VLAN_NODE_IP}:8301:8301 -p ${VLAN_NODE_IP}:8302:8302 ${IMAGE_CONSUL}"
 
 
-  if [[ $(is_node_cluster_leader) -eq 0 ]]; then
+  if [[ "$(is_node_cluster_leader)" == "0" ]]; then
     # this node is cluster leader and should bootstrap consul
     local consul_command="agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${VLAN_NODE_IP} -client 0.0.0.0 -bootstrap-expect 1"
   else

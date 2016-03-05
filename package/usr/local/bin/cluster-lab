@@ -32,10 +32,10 @@ function start(){
   post_check_networking
   exit_with_message_on_error $? "Networking  broken"
 
-  pre_check_clusterleader
   # start additional services if cluster leader
-  if [[ $(is_node_cluster_leader) -eq 0 ]]; then
+  if [[ "$(is_node_cluster_leader)" == "0" ]]; then
     echo -e "\n\e[34mThis node is Leader\e[0m"
+    pre_check_clusterleader
     configure_clusterleader
     post_check_clusterleader
   else
@@ -48,7 +48,6 @@ function start(){
   pre_check_docker_container
   run_docker_container
   post_check_docker_container
-
 
 }
 

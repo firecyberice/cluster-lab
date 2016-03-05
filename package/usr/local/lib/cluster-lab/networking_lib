@@ -76,7 +76,10 @@ function get_current_leader_ip(){
 }
 
 function is_node_cluster_leader(){
-  [[ "$(get_current_node_ip)" == "$(get_current_leader_ip)" ]]
+  avahi_query_result=$(avahi-browse _cluster._tcp --terminate --resolve --parsable)
+  local leader_ip=$(echo "$avahi_query_result" | grep '^=' | grep ';Cluster-Leader' |  grep 'eth0\.' | grep IPv4 | cut -d ';' -f8)
+
+  [[ "$(get_current_node_ip)" == "${leader_ip}" ]]
   echo $?
 }
 
