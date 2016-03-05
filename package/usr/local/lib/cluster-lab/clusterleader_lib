@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # checks for dnsmasq
-function pre_check_dnsmasq(){
-  echo -e "\npre DNSmasq"
+function pre_check_clusterleader(){
+  echo -e "\n DNSmasq"
   ERRORS=0
 
   check_if_os_package_exists "dnsmasq"
@@ -17,8 +17,8 @@ function pre_check_dnsmasq(){
   return "$ERRORS"
 }
 
-function post_check_dnsmasq(){
-  echo -e "\npost DNSmasq"
+function post_check_clusterleader(){
+  echo -e "\n DNSmasq"
   ERRORS=0
 
   check_if_process_exists "dnsmasq"
@@ -31,7 +31,7 @@ function post_check_dnsmasq(){
 }
 
 # DHCP dnsmasq
-function configure_dnsmasq(){
+function configure_clusterleader(){
   if [[ ! -f "/etc/dnsmasq.conf.cluster-lab-backup" ]]; then
     cp /etc/dnsmasq.conf /etc/dnsmasq.conf.cluster-lab-backup
   fi
@@ -69,11 +69,13 @@ dhcp-option=6
 dhcp-range=${DHCP_RANGE_FROM},${DHCP_RANGE_TO},1h
 
 EOM
+
+systemctl reload dnsmasq.service
 }
 
-function reset_dnsmasq(){
+function reset_clusterleader(){
   if [ -f "/etc/dnsmasq.conf.cluster-lab-backup" ];then
-    rm -f /etc/dnsmasq.conf
-    mv /etc/dnsmasq.conf.cluster-lab-backup /etc/dnsmasq.conf
+    mv -f /etc/dnsmasq.conf.cluster-lab-backup /etc/dnsmasq.conf
+    systemctl reload dnsmasq.service
   fi
 }
