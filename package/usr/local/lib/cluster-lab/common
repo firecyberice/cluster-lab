@@ -7,7 +7,7 @@ function evaluate_result(){
     echo -e "\e[32m  [PASS] ${message}\e[0m"
   else
     echo -e "\e[31m  [FAIL] ${message}\e[0m"
-    ERROR=( $ERROR + 1 )
+    ERROR=1
   fi
 }
 
@@ -21,7 +21,7 @@ function exit_with_message_on_error(){
 }
 
 function get_ip_of_interface(){
-  local interface=$1
+  local interface="${1}"
   local all_ip_addresses=$(hostname -I)
   local interface_ip=$(ip a s "$interface")
   for ip_address in $all_ip_addresses; do

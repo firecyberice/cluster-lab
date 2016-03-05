@@ -30,24 +30,14 @@ function start(){
   exit_with_message_on_error $? "Networking is broken"
   check_internet_connection
 
-  # avahi
-  pre_check_avahi
-  configure_avahi
-  systemctl restart avahi-daemon.service
-#  echo "waiting 2 secs for restart of avahi-daemon"
-  sleep 5
-  post_check_avahi
-
   configure_networking
+
   post_check_networking
   exit_with_message_on_error $? "Networking  broken"
 
   pre_check_dnsmasq
   # start additional services if cluster leader
   if [[ "${VLAN_LEADER_IP}" == "$(get_current_node_ip)" ]]; then
-    add_cluster_leader_service
-    post_check_cluster_leader_service
-
     configure_dnsmasq
     systemctl restart dnsmasq.service
 #    echo "waiting 2 secs for restart of dnsmasq"
