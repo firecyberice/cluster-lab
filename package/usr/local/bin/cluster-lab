@@ -10,10 +10,6 @@
 for sourcefile in /usr/local/lib/cluster-lab/*_lib; do
   . $sourcefile
 done
-# libs="networking_lib avahi_lib dnsmasq_lib docker_lib"
-# for sourcefile in ${libs}; do
-#   . /usr/local/lib/cluster-lab/$sourcefile
-# done
 
 usage () {
 cat << EOM
@@ -35,33 +31,31 @@ function start(){
   post_check_networking
   exit_with_message_on_error $? "Networking  broken"
 
-  pre_check_dnsmasq
+  pre_check_clusterleader
   # start additional services if cluster leader
-  if [[ "${VLAN_LEADER_IP}" == "$(get_current_node_ip)" ]]; then
-    configure_dnsmasq
-    systemctl restart dnsmasq.service
-#    echo "waiting 2 secs for restart of dnsmasq"
-    sleep 2
-    post_check_dnsmasq
+  if [[ $(is_node_cluster_leader) -eq 0 ]]; then
+    configure_clusterleader
+    post_check_clusterleader
   fi
+  pre_check_docker
+  configure_docker
+  post_check_docker
+
+  pre_check_docker_container
+  run_docker_container
+  post_check_docker_container
+
 
 }
 
 function stop(){
-  delete_cluster_leader_service
-  pre_check_cluster_leader_service
+  reset_clusterleader
+  pre_check_clusterleader
 
-  reset_avahi
-  systemctl restart avahi-daemon.service
-#  echo "waiting 2 secs for restart of avahi-daemon"
-  sleep 2
-  pre_check_avahi
+  reset_docker
+  pre_check_docker
 
-  reset_dnsmasq
-  systemctl restart dnsmasq.service
-#  echo "waiting 2 secs for restart of dnsmasq"
-  sleep 2
-  pre_check_dnsmasq
+  remove_docker_container
 
   reset_networking
   pre_check_networking
@@ -69,16 +63,16 @@ function stop(){
 }
 
 if [ $# -eq 1 ]; then
-    case "$1" in
-        "start" )
-            start
-            ;;
-        "stop" )
-            stop
-            ;;
-        * )
-            ;;
-    esac
+  case "$1" in
+    "start" )
+      start
+      ;;
+    "stop" )
+      stop
+      ;;
+    * )
+      ;;
+  esac
 elif [[ $DEBUG == "true" ]]; then
   eval "$@"
 else
