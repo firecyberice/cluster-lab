@@ -49,7 +49,8 @@ function post_check_docker(){
 
 # docker engine
 function configure_docker(){
-  echo -e "\n Configure Docker"
+  echo -e "\n\e[34mConfigure Docker\e[0m"
+
   # create backup of /etc/default/docker config
   if [[ (! -f "/etc/default/docker.cluster-lab-backup") ]]; then
     cp /etc/default/docker /etc/default/docker.cluster-lab-backup
