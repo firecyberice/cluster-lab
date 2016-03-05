@@ -120,7 +120,7 @@ function check_internet_connection(){
 }
 
 function pre_check_networking(){
-  echo -e "\npre Networking"
+  echo -e "\nNetworking"
   ERRORS=0
 
   ip link show | grep -q eth0
@@ -128,6 +128,9 @@ function pre_check_networking(){
 
   [[ ! -z "$(get_ip_of_interface eth0)" ]]
   evaluate_result $? "  eth0 has an ip address"
+
+  check_if_os_package_exists "vlan"
+  evaluate_result $? "  vlan os package exists"
 
   check_if_os_package_exists "avahi"
   evaluate_result $? "  Avahi os package exists"
@@ -154,7 +157,7 @@ function pre_check_networking(){
 }
 
 function post_check_networking(){
-  echo -e "\npost Networking"
+  echo -e "\nNetworking"
   ERRORS=0
 
   ip link show | grep -q eth0
@@ -235,6 +238,7 @@ function reset_networking(){
   remove_vlan_interface
   if [ -f "/etc/avahi/avahi-daemon.conf.cluster-lab-backup" ]; then
     mv -f /etc/avahi/avahi-daemon.conf.cluster-lab-backup /etc/avahi/avahi-daemon.conf
+    systemctl reload avahi-daemon.service
   fi
   rm -f /etc/avahi/services/cluster-leader.service
 }
