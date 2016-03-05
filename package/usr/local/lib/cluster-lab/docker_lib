@@ -49,6 +49,7 @@ function post_check_docker(){
 
 # docker engine
 function configure_docker(){
+  echo -e "\n Configure Docker"
   # create backup of /etc/default/docker config
   if [[ (! -f "/etc/default/docker.cluster-lab-backup") ]]; then
     cp /etc/default/docker /etc/default/docker.cluster-lab-backup
@@ -61,12 +62,12 @@ function configure_docker(){
   fi
   echo "DOCKER_OPTS=$(eval "echo ${DOCKER_OPTS}")" > /etc/default/docker
 
-  systemctl reload docker.service
+  systemctl restart docker.service
 }
 
 function reset_docker(){
   if [[ -f "/etc/default/docker.cluster-lab-backup" ]]; then
     mv -f /etc/default/docker.cluster-lab-backup /etc/default/docker
-    systemctl reload docker.service
+    systemctl restart docker.service
   fi
 }

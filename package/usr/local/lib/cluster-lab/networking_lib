@@ -204,6 +204,8 @@ function post_check_networking(){
 
 # setup basic networking
 function configure_networking(){
+  echo -e "\n Configure basic networking"
+  
   add_vlan_interface
   if [[ -z "$(get_current_leader_ip)" ]]; then
     # there is no leader yet

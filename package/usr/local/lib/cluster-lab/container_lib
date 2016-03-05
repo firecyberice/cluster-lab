@@ -97,7 +97,8 @@ function post_check_docker_container(){
 
 # docker container
 function run_docker_container(){
-  VLAN_NODE_IP="$(ip_of_interface "${VLAN_INTERFACE}")"
+  echo -e "\n Start Docker container"
+  VLAN_NODE_IP="$(get_ip_of_interface "${VLAN_INTERFACE}")"
 
   # configure consul start command
   local consul_docker="docker run -dit --restart always --name ${DOCKER_COMPOSE_PROJECT}_consul --net host"
@@ -113,6 +114,7 @@ function run_docker_container(){
   fi
 
   # consul
+  echo "Start consul"
   local cmd="$consul_docker $consul_ports $consul_command"
   eval "$cmd"
 
@@ -120,9 +122,11 @@ function run_docker_container(){
   sleep 3
 
   # swarm join
+  echo "Start swarm join"
   eval "docker run -dit --restart always --name ${DOCKER_COMPOSE_PROJECT}_swarm ${IMAGE_SWARM} join --advertise ${VLAN_NODE_IP}:2375 consul://${VLAN_NODE_IP}:8500"
 
   #swarm manage
+  echo "Start swarm manage"
   eval "docker run -dit --restart always --name ${DOCKER_COMPOSE_PROJECT}_swarmmanage -p 2378:2375 ${IMAGE_SWARM} manage --replication --advertise ${VLAN_NODE_IP}:2378 consul://${VLAN_NODE_IP}:8500"
 
 }

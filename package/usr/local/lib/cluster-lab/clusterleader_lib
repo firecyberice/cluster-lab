@@ -32,6 +32,8 @@ function post_check_clusterleader(){
 
 # DHCP dnsmasq
 function configure_clusterleader(){
+  echo -e "\n Configure DNSmasq"
+
   if [[ ! -f "/etc/dnsmasq.conf.cluster-lab-backup" ]]; then
     cp /etc/dnsmasq.conf /etc/dnsmasq.conf.cluster-lab-backup
   fi
