@@ -22,9 +22,10 @@ EOM
 }
 
 function start(){
+  check_internet_connection
+
   pre_check_networking
   exit_with_message_on_error $? "Networking is broken"
-  check_internet_connection
 
   configure_networking
 
@@ -34,8 +35,11 @@ function start(){
   pre_check_clusterleader
   # start additional services if cluster leader
   if [[ $(is_node_cluster_leader) -eq 0 ]]; then
+    echo -e "\n\e[34mThis node is Leader\e[0m"
     configure_clusterleader
     post_check_clusterleader
+  else
+    echo -e "\n\e[34mThis node is Follower\e[0m"
   fi
   pre_check_docker
   configure_docker
