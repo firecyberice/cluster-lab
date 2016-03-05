@@ -32,29 +32,29 @@ function run_docker(){
   fi
 
   local cmd="$consul_docker $consul_ports $consul_command"
-  eval $cmd
+  eval "$cmd"
 
   sleep 2
 
   # swarm join
-  docker run -dit --restart always --name "${DOCKER_COMPOSE_PROJECT}_swarm" ${IMAGE_SWARM} join --advertise ${SELFIP}:2375 consul://${SELFIP}:8500
+  eval "docker run -dit --restart always --name ${DOCKER_COMPOSE_PROJECT}_swarm ${IMAGE_SWARM} join --advertise ${SELFIP}:2375 consul://${SELFIP}:8500"
 
   #swarm manage
-  docker run -dit --restart always --name "${DOCKER_COMPOSE_PROJECT}_swarmmanage" -p 2378:2375 ${IMAGE_SWARM} manage --replication --advertise ${SELFIP}:2378 consul://${SELFIP}:8500
+  eval "docker run -dit --restart always --name ${DOCKER_COMPOSE_PROJECT}_swarmmanage -p 2378:2375 ${IMAGE_SWARM} manage --replication --advertise ${SELFIP}:2378 consul://${SELFIP}:8500"
 
 }
 
 function remove_docker(){
-    docker rm -vf ${DOCKER_COMPOSE_PROJECT}_swarmmanage
-    docker rm -vf ${DOCKER_COMPOSE_PROJECT}_swarm
-    docker rm -vf ${DOCKER_COMPOSE_PROJECT}_consul
+    docker rm -vf "${DOCKER_COMPOSE_PROJECT}_swarmmanage"
+    docker rm -vf "${DOCKER_COMPOSE_PROJECT}_swarm"
+    docker rm -vf "${DOCKER_COMPOSE_PROJECT}_consul"
 }
 
 
 # docker-compose
 function configure_dockercompose(){
 YMLFILE="/etc/hypriot/docker-compose.yml"
-cat << EOM > $YMLFILE
+cat << EOM > "$YMLFILE"
 version: "2"
 services:
   swarm:
@@ -84,9 +84,9 @@ services:
 EOM
 
 if [ "$LEADER_or_FOLLOWER" == "leader" ]; then
-  echo "    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -bootstrap-expect 1" >> $YMLFILE
+  echo "    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -bootstrap-expect 1" >> "$YMLFILE"
 elif [ "$LEADER_or_FOLLOWER" == "follower" ]; then
-  echo "    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -join ${CLUSTERMASTERIP}:8301" >> $YMLFILE
+  echo "    command: agent -server -rejoin -data-dir /data -ui-dir /ui -bind ${SELFIP} -client 0.0.0.0 -join ${CLUSTERMASTERIP}:8301" >> "$YMLFILE"
 fi
 }
 

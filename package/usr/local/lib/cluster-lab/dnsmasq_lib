@@ -2,7 +2,7 @@
 
 # checks for dnsmasq
 function pre_check_dnsmasq(){
-  echo -e "\nDNSmasq"
+  echo -e "\npre DNSmasq"
   ERRORS=0
 
   check_if_os_package_exists "dnsmasq"
@@ -18,7 +18,7 @@ function pre_check_dnsmasq(){
 }
 
 function post_check_dnsmasq(){
-  echo -e "\nDNSmasq"
+  echo -e "\npost DNSmasq"
   ERRORS=0
 
   check_if_process_exists "dnsmasq"
@@ -37,10 +37,10 @@ function configure_dnsmasq(){
   fi
 cat << EOM > /etc/dnsmasq.conf
 
-# set domain name
-domain=hypriot.cluster
 interface=${VLAN_INTERFACE}
 
+# set domain name
+#domain=hypriot.cluster
 # TODO dns stuff forward consul to ...
 #server=/consul/${SELFIP}:8600
 

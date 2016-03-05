@@ -2,56 +2,59 @@
 
 # VLAN configuration
 function add_vlan_interface(){
-  ip link add link eth0 name "${VLAN_INTERFACE}" type vlan id "${VLAN_ID}"
-  ip link set dev "${VLAN_INTERFACE}" up
+  ip link add link eth0 name "${VLAN_INTERFACE}" type vlan id "${VLAN_ID}" 2>&1
+  return $?
 }
 
 function remove_vlan_interface(){
-  ip link delete dev "${VLAN_INTERFACE}" type vlan
+  ip link delete dev "${VLAN_INTERFACE}" type vlan > /dev/null 2>&1
+  return $?
 }
 
 # IP configuration
 function add_ip_to_vlan_interface(){
   local ip="$1"
-
-  ip addr add "${ip}${VLAN_NETMASK}" dev "${VLAN_INTERFACE}"
-  ip link set dev "${VLAN_INTERFACE}" up
+  ip addr add "${ip}${VLAN_NETMASK}" dev "${VLAN_INTERFACE}" > /dev/null 2>&1
+  if [[ $? == 0 ]]; then
+    ip link set dev "${VLAN_INTERFACE}" up > /dev/null 2>&1
+    return $?
+  fi
 }
 
 function remove_ip_from_vlan_interface(){
   local ip="$1"
-
-  ip addr delete "${ip}${VLAN_NETMASK}" dev "${VLAN_INTERFACE}"
+  ip addr delete "${ip}${VLAN_NETMASK}" dev "${VLAN_INTERFACE}" > /dev/null 2>&1
+  return $?
 }
 
 function get_current_node_ip(){
   if [[ -z "${NODE_IP}" ]]; then
-    ip link set dev "${VLAN_INTERFACE}" up
-    dhclient "${VLAN_INTERFACE}"
+    ip link set dev "${VLAN_INTERFACE}" up > /dev/null 2>&1
+    timeout 3 dhclient "${VLAN_INTERFACE}"
 
     # try 3 times to get an ip address
     for i in {1..3}; do
       NODE_IP=$(get_ip_of_interface "${VLAN_INTERFACE}")
-      if [[ -n "$NODE_IP" ]]; then
+      if [[ -z "${NODE_IP}" ]]; then
         break
         echo "tried to get ip $i times"
       fi
       sleep 2
     done
   fi
-  echo "$NODE_IP"
+  echo "${NODE_IP}"
 }
 
 function get_current_leader_ip(){
-  if [[ -z "$MASTER_IP" ]]; then
+  if [[ -z "${LEADER_IP}" ]]; then
     add_ip_to_vlan_interface "${VLAN_TEST_IP}"
 
     avahi_query_result=$(avahi-browse _cluster._tcp --terminate --resolve --parsable --ignore-local)
-    MASTER_IP=$(echo "$avahi_query_result" | grep '^=' | grep ';Cluster-Leader' |  grep 'eth0\.' | grep IPv4 | cut -d ';' -f8)
+    LEADER_IP=$(echo "$avahi_query_result" | grep '^=' | grep ';Cluster-Leader' |  grep 'eth0\.' | grep IPv4 | cut -d ';' -f8)
 
     remove_ip_from_vlan_interface "${VLAN_TEST_IP}"
   fi
-  echo "$MASTER_IP"
+  echo "${LEADER_IP}"
 }
 
 function is_link_local_ip(){
@@ -72,7 +75,7 @@ function check_internet_connection(){
   ping -W 1 -c 2 8.8.8.8 > /dev/null 2>&1
   evaluate_result $? "  Internet is reachable"
 
-  timeout 1 ping -c 1 google.com > /dev/null 2>&1
+  timeout 2 ping -c 1 google.com > /dev/null 2>&1
   evaluate_result $? "  DNS works"
 
   return "$ERRORS"
@@ -80,7 +83,7 @@ function check_internet_connection(){
 
 
 function pre_check_networking(){
-  echo -e "\nNetworking"
+  echo -e "\npre Networking"
   ERRORS=0
 
   ip link show | grep -q eth0
@@ -94,7 +97,7 @@ function pre_check_networking(){
 
 
 function post_check_networking(){
-  echo -e "\nNetworking"
+  echo -e "\npost Networking"
   ERRORS=0
 
   ip link show | grep -q eth0

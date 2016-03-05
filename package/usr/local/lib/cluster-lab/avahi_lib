@@ -2,7 +2,7 @@
 
 # avahi-daemon checks
 function pre_check_avahi(){
-  echo -e "\nAvahi"
+  echo -e "\npre Avahi"
   ERRORS=0
 
   check_if_os_package_exists "avahi"
@@ -17,17 +17,17 @@ function pre_check_avahi(){
   [[ ! -f "/etc/avahi/avahi-daemon.conf.cluster-lab-backup" ]]
   evaluate_result $? "  /etc/avahi/avahi-daemon.conf backup file is absent"
 
-  avahi-browse --all --terminate | grep -q 'IPv6'
+  [[ $(avahi-browse --all --terminate | grep -c 'IPv6') -gt 0 ]]
   evaluate_result $? "  Avahi is using IPv6 addresses"
 
-  [[ $(avahi-browse --all --terminate | grep -c "${VLAN_INTERFACE}") == 0 ]]
+  [[ $(avahi-browse --all --terminate | grep -c "${VLAN_INTERFACE}") -eq 0 ]]
   evaluate_result $? "  Avahi is not using ${VLAN_INTERFACE}"
 
   return "$ERRORS"
 }
 
 function post_check_avahi(){
-  echo -e "\nAvahi"
+  echo -e "\npost Avahi"
   ERRORS=0
 
   check_if_process_exists "avahi"
@@ -36,11 +36,12 @@ function post_check_avahi(){
   [[ -f "/etc/avahi/avahi-daemon.conf.cluster-lab-backup" ]]
   evaluate_result $? "  /etc/avahi/avahi-daemon.conf backup file exists"
 
-  [[ $(avahi-browse --all --terminate | grep -q -c 'IPv6') == 0 ]]
+  [[ $(avahi-browse --all --terminate | grep -c 'IPv6') -eq 0 ]]
   evaluate_result $? "  Avahi is not using IPv6 addresses"
 
-  avahi-browse --all --terminate | grep -q "${VLAN_INTERFACE}"
+  [[ $(avahi-browse --all --terminate | grep -c "${VLAN_INTERFACE}") -gt 0 ]]
   evaluate_result $? "  Avahi is using ${VLAN_INTERFACE}"
+  avahi-browse --all --terminate | grep -c "${VLAN_INTERFACE}"
 
   return "$ERRORS"
 }
@@ -69,6 +70,8 @@ function reset_avahi(){
 
 # avahi cluser-master.service file
 function pre_check_cluster_leader_service(){
+  echo -e "\npre cluster_leader"
+
   [[ ! -f "/etc/avahi/services/cluster-leader.service" ]]
   local errorcode=$?
   evaluate_result $errorcode "  cluster-leader.service is absent"
@@ -76,13 +79,14 @@ function pre_check_cluster_leader_service(){
 }
 
 function post_check_cluster_leader_service(){
+  echo -e "\npost cluster_leader"
   [[ -f "/etc/avahi/services/cluster-leader.service" ]]
   local errorcode=$?
   evaluate_result $errorcode "  cluster-leader.service exists"
   return $errorcode
 }
 
-function add_cluster_leader_service_file(){
+function add_cluster_leader_service(){
 cat << EOM > /etc/avahi/services/cluster-leader.service
 <?xml version="1.0" standalone='no'?><!--*-nxml-*-->
 <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
@@ -97,6 +101,6 @@ cat << EOM > /etc/avahi/services/cluster-leader.service
 EOM
 }
 
-function delete_cluster_leader_service_file(){
+function delete_cluster_leader_service(){
   rm -f /etc/avahi/services/cluster-leader.service
 }

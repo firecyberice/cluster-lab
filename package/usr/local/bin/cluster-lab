@@ -10,6 +10,10 @@
 for sourcefile in /usr/local/lib/cluster-lab/*_lib; do
   . $sourcefile
 done
+# libs="networking_lib avahi_lib dnsmasq_lib docker_lib"
+# for sourcefile in ${libs}; do
+#   . /usr/local/lib/cluster-lab/$sourcefile
+# done
 
 usage () {
 cat << EOM
@@ -30,6 +34,8 @@ function start(){
   pre_check_avahi
   configure_avahi
   systemctl restart avahi-daemon.service
+#  echo "waiting 2 secs for restart of avahi-daemon"
+  sleep 5
   post_check_avahi
 
   configure_networking
@@ -38,27 +44,33 @@ function start(){
 
   pre_check_dnsmasq
   # start additional services if cluster leader
-  if [[ "$(get_current_leader_ip)" == "$(get_current_node_ip)" ]]; then
-    add_leader_service_file
-    post_check_avahi_leader_service
+  if [[ "${VLAN_LEADER_IP}" == "$(get_current_node_ip)" ]]; then
+    add_cluster_leader_service
+    post_check_cluster_leader_service
 
     configure_dnsmasq
-    systemctl retstart dnsmasq.service
+    systemctl restart dnsmasq.service
+#    echo "waiting 2 secs for restart of dnsmasq"
+    sleep 2
     post_check_dnsmasq
   fi
 
 }
 
 function stop(){
-  delete_cluster_leader_service_file
+  delete_cluster_leader_service
   pre_check_cluster_leader_service
 
   reset_avahi
   systemctl restart avahi-daemon.service
+#  echo "waiting 2 secs for restart of avahi-daemon"
+  sleep 2
   pre_check_avahi
 
   reset_dnsmasq
-  systemctl retstart dnsmasq.service
+  systemctl restart dnsmasq.service
+#  echo "waiting 2 secs for restart of dnsmasq"
+  sleep 2
   pre_check_dnsmasq
 
   reset_networking
@@ -75,13 +87,10 @@ if [ $# -eq 1 ]; then
             stop
             ;;
         * )
-        if [[ $DEBUG == "true" ]]; then
-            "$@"
-        else
-            usage
-        fi
             ;;
     esac
+elif [[ $DEBUG == "true" ]]; then
+  eval "$@"
 else
-    usage
+  usage
 fi
