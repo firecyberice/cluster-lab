@@ -72,13 +72,13 @@ dhcp-range=${DHCP_RANGE_FROM},${DHCP_RANGE_TO},1h
 
 EOM
 
-systemctl reload dnsmasq.service
+systemctl restart dnsmasq.service
 }
 
 function reset_clusterleader(){
   echo -e "\n\e[34mReset DNSmasq\e[0m"
   if [ -f "/etc/dnsmasq.conf.cluster-lab-backup" ];then
     mv -f /etc/dnsmasq.conf.cluster-lab-backup /etc/dnsmasq.conf
-    systemctl reload dnsmasq.service
+    systemctl restart dnsmasq.service
   fi
 }

@@ -77,7 +77,7 @@ function get_current_leader_ip(){
 
 function is_node_cluster_leader(){
   [[ "$(get_current_node_ip)" == "$(get_current_leader_ip)" ]]
-  return $?
+  echo $?
 }
 
 function is_link_local_ip(){
@@ -219,15 +219,15 @@ function configure_networking(){
   else
     # we already have a leader
     if [[ -z $(get_current_node_ip) ]]; then
-      # we have no ip from dhcp
-      echo -e "Failed to configure networking. \nTrying to rollback networking configuration"
+      # we did not get an ip from dhcp or link local
+      echo -e "Failed to configure networking. Could not get an IP.\nTrying to rollback networking configuration"
       reset_networking
       exit 1
     else
-      # we have an ip from dhcp
+      # we have an ip
       if [[ "$(is_link_local_ip "$(get_current_node_ip)")" == "1" ]]; then
-        # we got a link local ip which is wrong
-        echo -e "Failed to configure networking. \nTrying to rollback networking configuration"
+        # we did not get an ip from dhcp
+        echo -e "Failed to configure networking: Could not get an IP via DHCP. \nTrying to rollback networking configuration"
         reset_networking
         exit 1
       fi
